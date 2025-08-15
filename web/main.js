@@ -97,12 +97,24 @@ function annotateAtoms() {
     });
   });
 }
+function toggleNodeConversation(node) {
+  // 1. 根据我们刚才添加的标记，查找这个节点的对话框是否已经存在
+  const existingChat = document.querySelector(`.micro-chat[data-node-id-ref='${node.node_id}']`);
 
+  if (existingChat) {
+    // 2. 如果存在，就移除它（关闭）
+    existingChat.remove();
+  } else {
+    // 3. 如果不存在，就调用原来的函数来创建并打开它
+    openNodeConversation(node);
+  }
+}
 function openMicroChat(atomEl) {
   closeAllMicroChats();
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
 
+  // box.dataset.nodeIdRef = node.node_id;
   // 1. 获取所有元素相对于浏览器视窗的位置信息
   const rect = atomEl.getBoundingClientRect();
   const parentRect = els.canvas.getBoundingClientRect(); // 画布容器 #canvas 的位置
@@ -216,8 +228,10 @@ function addNodeToCanvas(node) {
   el.style.top = `${node.canvas_position.y}px`;
   el.dataset.nodeId = node.node_id;
   el.dataset.sourceId = node.source_element_id;
-  el.title = '点击展开对话';
-  el.addEventListener('click', () => openNodeConversation(node));
+  el.title = '点击展开/收缩对话'; // 更新提示文字
+
+  // 【核心修改】将原来的 openNodeConversation 改为新的 toggleNodeConversation
+  el.addEventListener('click', () => toggleNodeConversation(node));
   enableNodeDrag(el, node);
   els.canvas.appendChild(el);
   redrawWires();
@@ -276,16 +290,23 @@ function redrawWires() {
 }
 
 function openNodeConversation(node) {
-  // create a micro chat box with existing conversation and pin near the node
-  closeAllMicroChats();
+  // closeAllMicroChats(); // 根据问题1的需要决定是否保留
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
   const nodeEl = [...document.querySelectorAll('.node')].find(e => e.dataset.nodeId === node.node_id);
   if (!nodeEl) return;
+  box.dataset.nodeIdRef = node.node_id;
   const rect = nodeEl.getBoundingClientRect();
   const parentRect = els.canvas.getBoundingClientRect();
-  const left = rect.right - parentRect.left + 8;
-  const top = rect.top - parentRect.top;
+  
+  const chatBoxWidth = 260; // 对话框宽度，定义在 styles.css
+  const gap = 8; // 期望的间距
+
+  // 【核心修改】计算新的 left 和 top 值
+  // left = (节点左边界 - 父容器左边界) / 缩放 - 对话框宽度 / 缩放 - 间距 / 缩放
+  const left = (rect.left - parentRect.left) / state.zoom - chatBoxWidth - (gap / state.zoom);
+  const top = (rect.top - parentRect.top) / state.zoom;
+
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
   const messagesEl = box.querySelector('.messages');
@@ -324,18 +345,30 @@ function appendChatToSidebar(atomEl, conversation) {
   
   // Set up the chat display
   const messagesEl = mc.querySelector('.messages');
-  messagesEl.innerHTML = '';
   renderMessages(messagesEl, conversation);
   
   // Add title
   const title = document.createElement('div');
-  title.textContent = `与元素 ${atomEl?.dataset?.atomId || atomEl?.dataset?.atom_id || '未知'} 的对话`;
+  title.textContent = `与元素 ${atomEl?.dataset?.atomId || '未知'} 的对话`;
   title.style.cssText = 'font-weight: 600; padding: 8px 10px; border-bottom: 1px solid #eee; margin-bottom: 8px;';
   mc.insertBefore(title, mc.firstChild);
   
-  // Remove the expand button since we're already in sidebar
-  const expandBtn = mc.querySelector('.expand');
-  if (expandBtn) expandBtn.style.display = 'none';
+  // --- 【新增代码】为侧边栏按钮绑定事件 ---
+  const saveBtn = mc.querySelector('.save');
+  const discardBtn = mc.querySelector('.discard');
+
+  // "保存并收缩"按钮的功能：可以定义为关闭侧边栏
+  saveBtn.textContent = '关闭'; // 可以重命名按钮，使其功能更明确
+  saveBtn.addEventListener('click', () => {
+    els.sidebar.classList.add('hidden'); // 点击后隐藏侧边栏
+  });
+
+  // "不保留"按钮的功能：可以定义为清空侧边栏内容
+  discardBtn.textContent = '清空'; // 重命名按钮
+  discardBtn.addEventListener('click', () => {
+    els.sidebarContent.innerHTML = ''; // 点击后清空侧边栏
+  });
+  // --- 新增代码结束 ---
   
   // Add to sidebar
   els.sidebarContent.appendChild(mc);
