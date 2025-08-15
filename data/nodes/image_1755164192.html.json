@@ -1,0 +1,25 @@
+[
+  {
+    "node_id": "cefd9ffd-a7fb-4a47-b937-1634d0e20db2",
+    "document_id": "image_1755164192.html",
+    "source_element_id": "atom-13",
+    "canvas_position": {
+      "x": -652.6781538775343,
+      "y": 721.014912926699,
+      "zoom_level": 0.49658530379140925
+    },
+    "conversation_log": [
+      {
+        "role": "user",
+        "text": "公式推导",
+        "timestamp": 1755172221838.0
+      },
+      {
+        "role": "assistant",
+        "text": "[stub] 我理解到你在该位置提出的问题是：公式推导。当前返回为本地占位回复。部署真实LLM后将返回上下文相关答案。",
+        "timestamp": 1755172221.841848
+      }
+    ],
+    "user_annotations": null
+  }
+]

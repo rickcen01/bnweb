@@ -1,0 +1,48 @@
+[
+  {
+    "node_id": "698da257-1039-48b2-a56f-3d1d8cf7f910",
+    "document_id": "index.html",
+    "source_element_id": "atom-7",
+    "canvas_position": {
+      "x": 102.29348021026152,
+      "y": -156.505696950757,
+      "zoom_level": 0.9048374180359597
+    },
+    "conversation_log": [
+      {
+        "role": "user",
+        "text": "你好",
+        "timestamp": 1755163254652.0
+      },
+      {
+        "role": "assistant",
+        "text": "[stub] 我理解到你在该位置提出的问题是：你好。当前返回为本地占位回复。部署真实LLM后将返回上下文相关答案。",
+        "timestamp": 1755163254.6571987
+      }
+    ],
+    "user_annotations": null
+  },
+  {
+    "node_id": "feaaa48a-1bf0-408b-8161-0528b674c0ce",
+    "document_id": "index.html",
+    "source_element_id": "atom-11",
+    "canvas_position": {
+      "x": 575.5025973640263,
+      "y": 511.3162258546532,
+      "zoom_level": 0.7408182206817179
+    },
+    "conversation_log": [
+      {
+        "role": "user",
+        "text": "哈喽",
+        "timestamp": 1755163293710.0
+      },
+      {
+        "role": "assistant",
+        "text": "[stub] 我理解到你在该位置提出的问题是：哈喽。当前返回为本地占位回复。部署真实LLM后将返回上下文相关答案。",
+        "timestamp": 1755163293.7133515
+      }
+    ],
+    "user_annotations": null
+  }
+]

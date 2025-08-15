@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nbweb - 无限画布认知工作空间</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+    <script>
+      window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] }, svg: {fontCache: 'global'} };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+  </head>
+  <body>
+    <div id="topbar">
+      <div class="left">
+        <span class="logo">nbweb</span>
+        <select id="documentSelect"></select>
+        <label class="upload">
+          上传HTML
+          <input id="uploadInput" type="file" accept=".html,.htm" />
+        </label>
+        <label class="upload">
+          上传PDF
+          <input id="uploadPdfInput" type="file" accept=".pdf" />
+        </label>
+      </div>
+      <div class="right">
+        <button id="toggleSidebar">侧边栏</button>
+        <span class="zoom">缩放: <span id="zoomValue">100%</span></span>
+      </div>
+    </div>
+
+    <div id="container">
+      <div id="sidebar" class="hidden">
+        <div class="sidebar-header">AI对话区</div>
+        <div id="sidebarContent"></div>
+      </div>
+
+      <div id="canvasWrapper">
+        <div id="canvas">
+          <div id="contentFrame">
+            <div id="docHtml"></div>
+          </div>
+          <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+      </div>
+    </div>
+
+    <template id="microChatTemplate">
+      <div class="micro-chat">
+        <div class="messages"></div>
+        <div class="input">
+          <input type="text" placeholder="就该段内容提问..." />
+          <button class="send">发送</button>
+        </div>
+        <div class="actions">
+          <button class="save">保存并收缩</button>
+          <button class="expand">展开到侧边栏</button>
+          <button class="discard">不保留</button>
+        </div>
+      </div>
+    </template>
+
+    <template id="nodeTemplate">
+      <div class="node" draggable="true">
+        <div class="node-dot"></div>
+      </div>
+    </template>
+
+    <script src="/web/main.js"></script>
+  </body>
+  </html>
+
+

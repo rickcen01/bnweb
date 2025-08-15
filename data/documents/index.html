@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF.js 查看器演示</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        h2 {
+            color: #3498db;
+            margin-top: 0;
+        }
+        
+        p {
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        
+        .features {
+            margin-top: 10px;
+        }
+        
+        .features li {
+            margin-bottom: 5px;
+        }
+        
+        .note {
+            background-color: #ffffcc;
+            padding: 15px;
+            border-left: 5px solid #ffeb3b;
+            margin: 20px 0;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <h1>PDF.js 查看器演示</h1>
+    
+    <div class="card">
+        <h2>基础 PDF 查看器</h2>
+        <p>一个简单的 PDF.js 实现，允许您上传和查看 PDF 文件。</p>
+        <ul class="features">
+            <li>通过点击或拖放上传 PDF 文件</li>
+            <li>在页面之间导航</li>
+            <li>查看基本的 PDF 信息</li>
+        </ul>
+        <a href="pdfviewer.html" class="btn">启动基础查看器</a>
+    </div>
+    
+    <div class="card">
+        <h2>增强型 PDF 查看器</h2>
+        <p>一个具有附加功能和改进用户界面的高级实现。</p>
+        <ul class="features">
+            <li>包含基础查看器的所有功能</li>
+            <li>缩放控制</li>
+            <li>页面旋转</li>
+            <li>搜索功能（基本实现）</li>
+            <li>详细的文档元数据</li>
+            <li>响应式设计</li>
+        </ul>
+        <a href="pdf-viewer-enhanced.html" class="btn">启动增强型查看器</a>
+    </div>
+    <div class="card">
+        <h2>增强型 PDF 查看器</h2>
+        <p>一个具有附加功能和改进用户界面的高级实现。</p>
+        <ul class="features">
+            <li>包含基础查看器的所有功能</li>
+            <li>缩放控制</li>
+            <li>页面旋转</li>
+            <li>搜索功能（基本实现）</li>
+            <li>详细的文档元数据</li>
+            <li>响应式设计</li>
+        </ul>
+        <a href="pdf-viewer-enhanced copy.html" class="btn">启动增强型查看器</a>
+    </div>
+    
+    <div class="note">
+        <p><strong>注意：</strong> 这些查看器使用 Mozilla 的 PDF.js 库直接在浏览器中渲染 PDF 文件，无需插件。所有处理都在您的浏览器中本地进行 - 不会将任何文件上传到任何服务器。</p>
+    </div>
+    
+    <div class="card">
+        <h2>示例 PDF</h2>
+        <p>没有可用的 PDF 文件？您可以使用我们的示例 HTML 页面生成一个用于测试的 PDF。</p>
+        <a href="sample.html" class="btn">查看示例 HTML</a>
+        <p>从示例页面创建 PDF：</p>
+        <ol>
+            <li>使用上面的链接打开示例 HTML 页面</li>
+            <li>使用浏览器的打印功能（Ctrl+P 或 Cmd+P）</li>
+            <li>选择"另存为 PDF"作为目标</li>
+            <li>点击"保存"并选择计算机上的位置</li>
+            <li>将保存的 PDF 上传到其中一个查看器</li>
+        </ol>
+    </div>
+    
+    <footer>
+        <p>使用 <a href="https://mozilla.github.io/pdf.js/" target="_blank">PDF.js</a> 创建，这是 Mozilla 开发的开源 PDF 渲染器</p>
+    </footer>
+</body>
+</html> 
