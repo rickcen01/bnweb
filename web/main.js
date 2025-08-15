@@ -102,10 +102,22 @@ function openMicroChat(atomEl) {
   closeAllMicroChats();
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
+
+  // 1. 获取所有元素相对于浏览器视窗的位置信息
   const rect = atomEl.getBoundingClientRect();
-  const parentRect = els.canvas.getBoundingClientRect();
-  const left = rect.left - parentRect.left;
-  const top = rect.bottom - parentRect.top + 8;
+  const parentRect = els.canvas.getBoundingClientRect(); // 画布容器 #canvas 的位置
+  const contentFrameRect = els.contentFrame.getBoundingClientRect(); // 内容区域 #contentFrame 的位置
+
+  // 2. 【核心修改】计算在视窗中的像素偏移量
+  const offsetX = contentFrameRect.right - parentRect.left;
+  const offsetY = rect.top - parentRect.top;
+
+  // 3. 【关键】将视窗偏移量根据当前缩放比例转换回画布的内部坐标
+  //    这是解决缩放问题的关键一步
+  const left = offsetX / state.zoom + 24; // 在右侧留出 24px 的*画布内*间距
+  const top = offsetY / state.zoom;
+
+  // 4. 将计算出的正确位置应用到提问框上
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
   els.canvas.appendChild(box);
