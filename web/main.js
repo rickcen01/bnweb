@@ -152,6 +152,8 @@ function openMicroChat(atomEl) {
       document_id: state.documentId,
       source_element_id: atomEl.dataset.atomId,
       messages: conversation,
+      source_element_html: atomEl.outerHTML,
+      full_document_html: els.docHtml.innerHTML,
     };
     try {
       const res = await API.chat(payload);
@@ -453,5 +455,3 @@ function boot() {
 }
 
 boot();
-
-

@@ -13,6 +13,8 @@ import shutil
 from pathlib import Path
 
 import markdown2
+from google import genai  # 使用 google-genai 库
+import html2text
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -214,23 +216,85 @@ class ChatRequest(BaseModel):
     document_id: str
     source_element_id: str
     messages: List[Message]
+    source_element_html: str
+    full_document_html: str
 
+# 从环境变量中读取 Gemini API 密钥
+GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    # If OPENAI_API_KEY configured, you can plug in OpenAI here.
-    # For now, provide a simple echo+hint stub to keep UX unblocked.
-    last_user = next((m for m in reversed(req.messages) if m.role == 'user'), None)
-    user_text = last_user.text if last_user else ""
-    response = (
-        "[stub] 我理解到你在该位置提出的问题是：" + user_text +
-        "。当前返回为本地占位回复。部署真实LLM后将返回上下文相关答案。"
-    )
+    last_user_message = next((m for m in reversed(req.messages) if m.role == 'user'), None)
+    if not last_user_message:
+        raise HTTPException(status_code=400, detail="No user message found")
+    
+    user_question = last_user_message.text
+
+    # 如果未配置 Gemini API 密钥，则返回占位回复
+    if not GEMINI_API_KEY:
+        response_text = (
+            f"[stub] 我理解到你在该位置提出的问题是：{user_question}"
+            "。当前返回为本地占位回复。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。"
+        )
+        return {
+            "role": "assistant",
+            "text": response_text,
+            "timestamp": time.time(),
+        }
+
+    try:
+        # 将接收到的 HTML 转换为 Markdown 以便AI更好地理解
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        element_md = h.handle(req.source_element_html)
+        full_doc_md = h.handle(req.full_document_html)
+
+        # 构建发送给 Gemini 的提示
+        prompt = f"""
+你是一个智能问答助手。请根据以下提供的完整文档内容和用户当前聚焦的特定元素内容，来回答用户的问题。
+
+[完整文档内容]
+---
+{full_doc_md}
+---
+
+[用户聚焦的元素内容]
+---
+{element_md}
+---
+
+[用户问题]
+{user_question}
+
+请根据上述信息，用中文回答用户的问题。
+"""
+        # --- 新增日志：打印发送给AI的完整提示 ---
+        print("\n" + "="*50)
+        print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
+        print(prompt)
+        print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+        # 严格按照用户指定的格式调用 Gemini API
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",  # 使用推荐的模型标识符
+            contents=prompt,
+        )
+        
+        ai_response_text = response.text
+        print("\n" + "="*50)
+        print("====== V V V ====== RECEIVED FROM GEMINI API ====== V V V ======")
+        print(response)
+        print("====== ^ ^ ^ ====== END OF GEMINI API OUTPUT ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+        
+        ai_response_text = response.text
+    except Exception as e:
+        print(f"Error calling Gemini API: {e}")
+        ai_response_text = f"调用AI服务时出错: {e}"
+
     return {
         "role": "assistant",
-        "text": response,
+        "text": ai_response_text,
         "timestamp": time.time(),
-        "node_id_suggestion": str(uuid.uuid4()),
     }
-
-
