@@ -1,0 +1,63 @@
+[
+    {
+        "type": "text",
+        "text": "5.3.3定位误差的分析与计算",
+        "text_level": 1,
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "3、定位误差的计算事例（V形块定位）",
+        "text_level": 1,
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "定位基准为外圆的中心，工序基准分别为外圆中心、下母线、上母线。",
+        "page_idx": 0
+    },
+    {
+        "type": "table",
+        "img_path": "images/e5af7ef85954987f5493bd97ad02731083263e3e1b4b4bc1dd357f7758db9c82.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>工序基准</td><td>定位基准</td><td>△D</td></tr><tr><td>H尺寸：O</td><td>圆心</td><td>△B=0,△w≠0</td></tr><tr><td>H尺寸：下母线</td><td>圆心</td><td>△B≠0,△w≠0</td></tr><tr><td>H2尺寸：上母线</td><td>圆心</td><td>△B≠0,△w≠0</td></tr></table>",
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/54bdd09b0b57d607b17817b0877a24d711a6fd9e902c3ad833fd09d43d92305e.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "第五章 机床夹具设计",
+        "page_idx": 0
+    },
+    {
+        "type": "equation",
+        "img_path": "images/a7e9bb8820f091fd72bd33676fdbc9d52c35e581c5f001b4bd9a1379493164f0.jpg",
+        "text": "$$\n\\Delta _ { \\mathrm { { w } } } ~ = ~ { \\frac { T _ { D } } { 2 \\sin { \\frac { \\alpha } { 2 } } } }\n$$",
+        "text_format": "latex",
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "随着α角度增大，△w减小，但当α过大，引起工件水平方向上定位不稳定。一般取 $\\tt a = 9 0 ^ { \\circ }$ ",
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "定位误差的大小与标注方法有关",
+        "page_idx": 0
+    },
+    {
+        "type": "equation",
+        "img_path": "images/ffe572834a86ee5b51f76b78ba27f5daed8ee8d6ad32d1290776d3a8ac1c02a0.jpg",
+        "text": "$$\n\\Delta _ { p _ { i } } = \\Delta _ { { \\bf r } _ { 1 } } = \\frac { T _ { p } } { 2 s \\sin \\frac { \\alpha } { 2 } } { \\Delta _ { p _ { 2 } } } = \\Delta _ { { \\bf r } _ { 2 } } - \\Delta _ { p _ { 2 } } = \\frac { T _ { p } } { 2 } \\left( \\frac { 1 } { \\sin \\frac { \\alpha } { 2 } } - 1 \\right) \\Delta _ { p _ { 3 } } = \\Delta _ { { \\bf r } _ { 3 } } + \\Delta _ { p _ { 3 } } = \\frac { T _ { p } } { 2 } \\left( \\frac { 1 } { \\sin \\frac { \\alpha } { 2 } } + 1 \\right)\n$$",
+        "text_format": "latex",
+        "page_idx": 0
+    }
+]

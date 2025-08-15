@@ -11,16 +11,17 @@ import time
 import uuid
 import shutil
 from pathlib import Path
+import zipfile
+import tempfile
 
 import markdown2
-from google import genai  # 使用 google-genai 库
+from google import genai
 import html2text
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Import MinerU gradio pipeline helpers directly
 import sys
-# Expect folder structure: D:/mineru2/nbweb (this file), sibling D:/mineru2/MinerU
 MINERU_DIR = os.path.join(os.path.dirname(ROOT_DIR), 'MinerU')
 if MINERU_DIR not in sys.path:
     sys.path.insert(0, MINERU_DIR)
@@ -82,6 +83,8 @@ def index():
 
 
 app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+# 【新增】允许直接访问documents目录，以便HTML能加载图片
+app.mount("/api/documents_assets", StaticFiles(directory=DOCS_DIR), name="documents_assets")
 
 
 @app.get("/api/documents")
@@ -122,7 +125,6 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(400, detail="Only PDF is supported")
 
-    # Save temp PDF
     tmp_dir = os.path.join(DATA_DIR, 'tmp')
     os.makedirs(tmp_dir, exist_ok=True)
     tmp_pdf_path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}.pdf")
@@ -133,34 +135,73 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
         raise HTTPException(500, detail="MinerU not available in server environment")
 
     try:
-        md_content, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
-            tmp_pdf_path,
-            end_pages=max_pages,
-            is_ocr=False,
-            formula_enable=True,
-            table_enable=True,
-            language=language,
-            backend=backend,
-            url=None,
+        # md_content_b64: 这是包含Base64图片的版本，用于生成自包含的HTML
+        # archive_zip_path: 这是包含干净MD和图片文件的压缩包路径
+        md_content_b64, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
+            tmp_pdf_path, end_pages=max_pages, is_ocr=False, formula_enable=True,
+            table_enable=True, language=language, backend=backend, url=None,
         )
     except Exception as e:
         raise HTTPException(500, detail=f"MinerU conversion failed: {e}")
     finally:
-        try:
+        if os.path.exists(tmp_pdf_path):
             os.remove(tmp_pdf_path)
-        except Exception:
-            pass
 
-    # Convert markdown (already includes inline base64 images possibly) to HTML
-    html = markdown2.markdown(md_content, extras=["fenced-code-blocks", "tables"])
+    base_filename = f"{Path(file.filename).stem}_{int(time.time())}"
+    html_document_id = f"{base_filename}.html"
 
-    # Store HTML in documents dir
-    title = f"{Path(file.filename).stem}_{int(time.time())}.html"
-    out_path = os.path.join(DOCS_DIR, title)
-    with open(out_path, 'w', encoding='utf-8') as f:
-        f.write(html)
+    # --- 任务1: 生成用于前端展示的、自包含的HTML (使用Base64图片) ---
+    html_for_frontend = markdown2.markdown(md_content_b64, extras=["fenced-code-blocks", "tables"])
+    html_out_path = os.path.join(DOCS_DIR, html_document_id)
+    with open(html_out_path, 'w', encoding='utf-8') as f:
+        f.write(html_for_frontend)
 
-    return {"status": "ok", "document_id": title}
+    # --- 任务2: 处理压缩包，生成用于AI的、干净的Markdown (使用图片路径) ---
+    if archive_zip_path and os.path.exists(archive_zip_path):
+        with tempfile.TemporaryDirectory() as temp_extract_dir:
+            # 解压文件
+            with zipfile.ZipFile(archive_zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_extract_dir)
+
+            source_md_path = None
+            source_assets_path = None
+            # 寻找解压出来的.md文件和assets目录
+            for root, dirs, files in os.walk(temp_extract_dir):
+                for f in files:
+                    if f.endswith('.md'):
+                        source_md_path = os.path.join(root, f)
+                if 'assets' in dirs:
+                    source_assets_path = os.path.join(root, 'assets')
+            
+            if source_md_path:
+                # 定义目标文件和目录名
+                md_for_ai_filename = f"{base_filename}.md"
+                target_assets_dirname = f"{base_filename}_assets"
+                
+                # 读取干净的MD内容
+                with open(source_md_path, 'r', encoding='utf-8') as f:
+                    clean_md_content = f.read()
+
+                # 将MD中的 "assets/" 路径替换为新的、唯一的资源路径名
+                # 这是关键一步，确保图片链接正确且不冲突
+                # 注意图片链接格式是 `](assets/...`
+                updated_md_content = clean_md_content.replace("](assets/", f"]({target_assets_dirname}/")
+
+                # 保存更新后的、干净的MD文件
+                md_for_ai_out_path = os.path.join(DOCS_DIR, md_for_ai_filename)
+                with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
+                    f.write(updated_md_content)
+
+                # 如果有图片，将assets目录移动并重命名到documents目录下
+                if source_assets_path and os.path.isdir(source_assets_path):
+                    target_assets_path = os.path.join(DOCS_DIR, target_assets_dirname)
+                    shutil.move(source_assets_path, target_assets_path)
+    
+    # 清理mineru生成的zip文件
+    if archive_zip_path and os.path.exists(archive_zip_path):
+        os.remove(archive_zip_path)
+
+    return {"status": "ok", "document_id": html_document_id}
 
 
 def _nodes_path(document_id: str) -> str:
@@ -169,13 +210,10 @@ def _nodes_path(document_id: str) -> str:
 
 def _read_nodes(document_id: str) -> List[Dict[str, Any]]:
     path = _nodes_path(document_id)
-    if not os.path.exists(path):
-        return []
+    if not os.path.exists(path): return []
     with open(path, 'r', encoding='utf-8') as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return []
+        try: return json.load(f)
+        except Exception: return []
 
 
 def _write_nodes(document_id: str, nodes: List[Dict[str, Any]]):
@@ -195,9 +233,7 @@ def create_or_update_node(document_id: str, node: KnowledgeNode):
     found = False
     for i, n in enumerate(nodes):
         if n.get('node_id') == node.node_id:
-            nodes[i] = node.model_dump()
-            found = True
-            break
+            nodes[i] = node.model_dump(); found = True; break
     if not found:
         nodes.append(node.model_dump())
     _write_nodes(document_id, nodes)
@@ -217,9 +253,8 @@ class ChatRequest(BaseModel):
     source_element_id: str
     messages: List[Message]
     source_element_html: str
-    full_document_html: str
 
-# 从环境变量中读取 Gemini API 密钥
+
 GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 @app.post("/api/chat")
@@ -230,26 +265,30 @@ def chat(req: ChatRequest):
     
     user_question = last_user_message.text
 
-    # 如果未配置 Gemini API 密钥，则返回占位回复
     if not GEMINI_API_KEY:
         response_text = (
             f"[stub] 我理解到你在该位置提出的问题是：{user_question}"
             "。当前返回为本地占位回复。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。"
         )
-        return {
-            "role": "assistant",
-            "text": response_text,
-            "timestamp": time.time(),
-        }
+        return {"role": "assistant", "text": response_text, "timestamp": time.time()}
 
     try:
-        # 将接收到的 HTML 转换为 Markdown 以便AI更好地理解
         h = html2text.HTML2Text()
         h.ignore_links = True
         element_md = h.handle(req.source_element_html)
-        full_doc_md = h.handle(req.full_document_html)
+        
+        # 根据HTML文件名 (e.g., "doc_123.html") 推导出对应的MD文件名 ("doc_123.md")
+        md_filename = Path(req.document_id).with_suffix('.md').name
+        md_filepath = os.path.join(DOCS_DIR, md_filename)
+        
+        full_doc_md = ""
+        if os.path.exists(md_filepath):
+            with open(md_filepath, 'r', encoding='utf-8') as f:
+                full_doc_md = f.read()
+        else:
+            full_doc_md = "[无法找到完整的Markdown文档上下文]"
+            print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
-        # 构建发送给 Gemini 的提示
         prompt = f"""
 你是一个智能问答助手。请根据以下提供的完整文档内容和用户当前聚焦的特定元素内容，来回答用户的问题。
 
@@ -268,33 +307,22 @@ def chat(req: ChatRequest):
 
 请根据上述信息，用中文回答用户的问题。
 """
-        # --- 新增日志：打印发送给AI的完整提示 ---
         print("\n" + "="*50)
         print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
-        print(prompt)
+        # 为了终端清晰，只打印部分长内容
+        print(prompt[:1000] + "\n...\n" + prompt[-500:])
         print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
         print("="*50 + "\n")
-        # 严格按照用户指定的格式调用 Gemini API
+
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-2.5-flash",  # 使用推荐的模型标识符
+            model="gemini-2.5-flash",
             contents=prompt,
         )
-        
-        ai_response_text = response.text
-        print("\n" + "="*50)
-        print("====== V V V ====== RECEIVED FROM GEMINI API ====== V V V ======")
-        print(response)
-        print("====== ^ ^ ^ ====== END OF GEMINI API OUTPUT ====== ^ ^ ^ ======")
-        print("="*50 + "\n")
         
         ai_response_text = response.text
     except Exception as e:
         print(f"Error calling Gemini API: {e}")
         ai_response_text = f"调用AI服务时出错: {e}"
 
-    return {
-        "role": "assistant",
-        "text": ai_response_text,
-        "timestamp": time.time(),
-    }
+    return {"role": "assistant", "text": ai_response_text, "timestamp": time.time()}

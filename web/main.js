@@ -85,6 +85,10 @@ function annotateAtoms() {
     n.classList.add('atom');
     const id = `atom-${++state.elementIdCounter}`;
     n.dataset.atomId = id;
+    
+    // 在MathJax等库修改DOM之前，将原始的HTML内容存储在data属性中
+    n.dataset.originalHtml = n.outerHTML;
+
     const ask = document.createElement('div');
     ask.className = 'ask';
     ask.textContent = '?';
@@ -98,14 +102,10 @@ function annotateAtoms() {
   });
 }
 function toggleNodeConversation(node) {
-  // 1. 根据我们刚才添加的标记，查找这个节点的对话框是否已经存在
   const existingChat = document.querySelector(`.micro-chat[data-node-id-ref='${node.node_id}']`);
-
   if (existingChat) {
-    // 2. 如果存在，就移除它（关闭）
     existingChat.remove();
   } else {
-    // 3. 如果不存在，就调用原来的函数来创建并打开它
     openNodeConversation(node);
   }
 }
@@ -114,22 +114,16 @@ function openMicroChat(atomEl) {
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
 
-  // box.dataset.nodeIdRef = node.node_id;
-  // 1. 获取所有元素相对于浏览器视窗的位置信息
   const rect = atomEl.getBoundingClientRect();
-  const parentRect = els.canvas.getBoundingClientRect(); // 画布容器 #canvas 的位置
-  const contentFrameRect = els.contentFrame.getBoundingClientRect(); // 内容区域 #contentFrame 的位置
+  const parentRect = els.canvas.getBoundingClientRect();
+  const contentFrameRect = els.contentFrame.getBoundingClientRect();
 
-  // 2. 【核心修改】计算在视窗中的像素偏移量
   const offsetX = contentFrameRect.right - parentRect.left;
   const offsetY = rect.top - parentRect.top;
 
-  // 3. 【关键】将视窗偏移量根据当前缩放比例转换回画布的内部坐标
-  //    这是解决缩放问题的关键一步
-  const left = offsetX / state.zoom + 24; // 在右侧留出 24px 的*画布内*间距
+  const left = offsetX / state.zoom + 24;
   const top = offsetY / state.zoom;
 
-  // 4. 将计算出的正确位置应用到提问框上
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
   els.canvas.appendChild(box);
@@ -148,13 +142,15 @@ function openMicroChat(atomEl) {
     input.value = '';
     conversation.push({ role: 'user', text, timestamp: Date.now() });
     renderMessages(messagesEl, conversation);
+    
+    // 发送我们之前缓存的、未经渲染的原始HTML
     const payload = {
       document_id: state.documentId,
       source_element_id: atomEl.dataset.atomId,
       messages: conversation,
-      source_element_html: atomEl.outerHTML,
-      full_document_html: els.docHtml.innerHTML,
+      source_element_html: atomEl.dataset.originalHtml, // 使用缓存的原始HTML
     };
+    
     try {
       const res = await API.chat(payload);
       conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
@@ -177,7 +173,6 @@ function openMicroChat(atomEl) {
   expandBtn.addEventListener('click', () => {
     els.sidebar.classList.remove('hidden');
     appendChatToSidebar(atomEl, conversation);
-    // Move chat into sidebar visually if desired
   });
 
   discardBtn.addEventListener('click', () => { box.remove(); });
@@ -230,9 +225,8 @@ function addNodeToCanvas(node) {
   el.style.top = `${node.canvas_position.y}px`;
   el.dataset.nodeId = node.node_id;
   el.dataset.sourceId = node.source_element_id;
-  el.title = '点击展开/收缩对话'; // 更新提示文字
+  el.title = '点击展开/收缩对话';
 
-  // 【核心修改】将原来的 openNodeConversation 改为新的 toggleNodeConversation
   el.addEventListener('click', () => toggleNodeConversation(node));
   enableNodeDrag(el, node);
   els.canvas.appendChild(el);
@@ -264,20 +258,16 @@ function redrawWires() {
   els.wires.innerHTML = '';
   state.nodes.forEach(node => {
     const nodeEl = [...document.querySelectorAll('.node')].find(e => e.dataset.nodeId === node.node_id);
-    // Find source element by atom ID
     let srcEl = els.docHtml.querySelector(`[data-atom-id="${node.source_element_id}"]`);
     if (!srcEl) {
-      // Fallback: try to find by data-atomId (alternative attribute)
       srcEl = els.docHtml.querySelector(`[data-atomId="${node.source_element_id}"]`);
     }
     if (!nodeEl || !srcEl) return;
     
-    // Get positions relative to the canvas (not viewport)
     const nodeRect = nodeEl.getBoundingClientRect();
     const srcRect = srcEl.getBoundingClientRect();
     const canvasRect = els.canvas.getBoundingClientRect();
     
-    // Calculate wire endpoints in canvas coordinates, accounting for transform
     const x1 = (nodeRect.left - canvasRect.left) / state.zoom;
     const y1 = (nodeRect.top - canvasRect.top) / state.zoom;
     const x2 = (srcRect.left - canvasRect.left) / state.zoom;
@@ -292,7 +282,6 @@ function redrawWires() {
 }
 
 function openNodeConversation(node) {
-  // closeAllMicroChats(); // 根据问题1的需要决定是否保留
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
   const nodeEl = [...document.querySelectorAll('.node')].find(e => e.dataset.nodeId === node.node_id);
@@ -301,11 +290,9 @@ function openNodeConversation(node) {
   const rect = nodeEl.getBoundingClientRect();
   const parentRect = els.canvas.getBoundingClientRect();
   
-  const chatBoxWidth = 260; // 对话框宽度，定义在 styles.css
-  const gap = 8; // 期望的间距
+  const chatBoxWidth = 260;
+  const gap = 8;
 
-  // 【核心修改】计算新的 left 和 top 值
-  // left = (节点左边界 - 父容器左边界) / 缩放 - 对话框宽度 / 缩放 - 间距 / 缩放
   const left = (rect.left - parentRect.left) / state.zoom - chatBoxWidth - (gap / state.zoom);
   const top = (rect.top - parentRect.top) / state.zoom;
 
@@ -313,9 +300,7 @@ function openNodeConversation(node) {
   box.style.top = `${top}px`;
   const messagesEl = box.querySelector('.messages');
   renderMessages(messagesEl, node.conversation_log || []);
-  // wire actions
   box.querySelector('.save').addEventListener('click', async () => {
-    // no-op save: persist current position
     try { await API.saveNode(state.documentId, node); } catch {}
     box.remove();
   });
@@ -324,13 +309,12 @@ function openNodeConversation(node) {
     appendChatToSidebar({ dataset: { atomId: node.source_element_id } }, node.conversation_log || []);
   });
   box.querySelector('.discard').addEventListener('click', () => {
-    // Delete the node entirely
     if (node && node.node_id) {
       API.deleteNode(state.documentId, node.node_id).catch(() => {});
       state.nodes = state.nodes.filter(n => n.node_id !== node.node_id);
       const el = document.querySelector(`.node[data-node-id='${node.node_id}']`);
       if (el) el.remove();
-      redrawWires();  // Redraw to remove any associated wires
+      redrawWires();
     }
     box.remove();
   });
@@ -338,44 +322,34 @@ function openNodeConversation(node) {
 }
 
 function appendChatToSidebar(atomEl, conversation) {
-  // Clear existing sidebar content
   els.sidebarContent.innerHTML = '';
   
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const mc = tpl.querySelector('.micro-chat');
   mc.classList.add('sidebar');
   
-  // Set up the chat display
   const messagesEl = mc.querySelector('.messages');
   renderMessages(messagesEl, conversation);
   
-  // Add title
   const title = document.createElement('div');
   title.textContent = `与元素 ${atomEl?.dataset?.atomId || '未知'} 的对话`;
   title.style.cssText = 'font-weight: 600; padding: 8px 10px; border-bottom: 1px solid #eee; margin-bottom: 8px;';
   mc.insertBefore(title, mc.firstChild);
   
-  // --- 【新增代码】为侧边栏按钮绑定事件 ---
   const saveBtn = mc.querySelector('.save');
   const discardBtn = mc.querySelector('.discard');
 
-  // "保存并收缩"按钮的功能：可以定义为关闭侧边栏
-  saveBtn.textContent = '关闭'; // 可以重命名按钮，使其功能更明确
+  saveBtn.textContent = '关闭';
   saveBtn.addEventListener('click', () => {
-    els.sidebar.classList.add('hidden'); // 点击后隐藏侧边栏
+    els.sidebar.classList.add('hidden');
   });
 
-  // "不保留"按钮的功能：可以定义为清空侧边栏内容
-  discardBtn.textContent = '清空'; // 重命名按钮
+  discardBtn.textContent = '清空';
   discardBtn.addEventListener('click', () => {
-    els.sidebarContent.innerHTML = ''; // 点击后清空侧边栏
+    els.sidebarContent.innerHTML = '';
   });
-  // --- 新增代码结束 ---
   
-  // Add to sidebar
   els.sidebarContent.appendChild(mc);
-  
-  // Ensure sidebar is visible
   els.sidebar.classList.remove('hidden');
 }
 
@@ -383,10 +357,15 @@ async function loadDocument(id) {
   state.documentId = id;
   const html = await API.getDocHtml(id).catch(() => '<p style="color:#a00">无法加载文档</p>');
   els.docHtml.innerHTML = html;
+
+  // 关键：在MathJax渲染之前，调用annotateAtoms来缓存原始HTML
+  annotateAtoms();
+  
+  // 在缓存之后，再进行公式渲染，这样只影响显示
   if (window.MathJax && window.MathJax.typesetPromise) {
     try { await window.MathJax.typesetPromise([els.docHtml]); } catch {}
   }
-  annotateAtoms();
+  
   await loadNodes(id);
 }
 
@@ -397,7 +376,6 @@ async function loadNodes(id) {
     const key = `nbweb:${id}:nodes`; nodes = JSON.parse(localStorage.getItem(key) || '[]');
   }
   state.nodes = nodes;
-  // Render
   document.querySelectorAll('.node').forEach(e => e.remove());
   nodes.forEach(addNodeToCanvas);
   redrawWires();
@@ -411,7 +389,9 @@ async function refreshDocs() {
     opt.value = d.document_id; opt.textContent = d.title; els.select.appendChild(opt);
   });
   if (docs.length) {
-    els.select.value = docs[0].document_id; await loadDocument(docs[0].document_id);
+    // 默认加载下拉列表中的第一个文档
+    els.select.value = docs[0].document_id; 
+    await loadDocument(docs[0].document_id);
   } else {
     els.docHtml.innerHTML = '<p style="color:#666">请先上传HTML或PDF文档</p>';
   }
@@ -419,7 +399,6 @@ async function refreshDocs() {
 
 function initUI() {
   els.toggleSidebar.addEventListener('click', () => els.sidebar.classList.toggle('hidden'));
-  // Debug: log sidebar state
   console.log('Sidebar elements:', {
     sidebar: els.sidebar,
     toggleBtn: els.toggleSidebar,
@@ -436,7 +415,8 @@ function initUI() {
     const res = await API.uploadPdf(f).catch(() => {});
     await refreshDocs();
     if (res && res.document_id) {
-      els.select.value = res.document_id; await loadDocument(res.document_id);
+      els.select.value = res.document_id; 
+      await loadDocument(res.document_id);
     }
   });
 }
@@ -444,12 +424,10 @@ function initUI() {
 function boot() {
   initPanZoom();
   initUI();
-  // center the canvas content initially
   const wrapper = els.canvasWrapper.getBoundingClientRect();
-  state.panX = wrapper.width / 2 - 460; // since contentFrame width ~920
+  state.panX = wrapper.width / 2 - 460;
   state.panY = 60;
   setTransform();
-  // Debug: ensure sidebar starts hidden
   els.sidebar.classList.add('hidden');
   refreshDocs();
 }
