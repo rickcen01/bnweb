@@ -1,5 +1,3 @@
-# server/main.py
-
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -244,7 +242,6 @@ def delete_node(document_id: str, node_id: str):
     _write_nodes(document_id, nodes)
     return {"status": "ok"}
 
-# 【新增】读写侧边栏对话历史的辅助函数
 def _chats_path(document_id: str) -> str:
     return os.path.join(CHATS_DIR, f"{document_id}.json")
 
@@ -260,12 +257,10 @@ def _write_chats(document_id: str, chats: List[Dict[str, Any]]):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(chats, f, ensure_ascii=False, indent=2)
 
-# 【新增】获取对话历史列表的API
 @app.get("/api/chats/{document_id}", response_model=List[ChatSession])
 def list_chats(document_id: str):
     return _read_chats(document_id)
 
-# 【新增】保存（新建或更新）一个对话历史的API
 @app.post("/api/chats/{document_id}")
 def save_chat(document_id: str, chat: ChatSession):
     chats = _read_chats(document_id)
@@ -278,7 +273,6 @@ def save_chat(document_id: str, chat: ChatSession):
     _write_chats(document_id, chats)
     return {"status": "ok", "id": chat.id}
 
-# 【新增】删除一个对话历史的API
 @app.delete("/api/chats/{document_id}/{chat_id}")
 def delete_chat(document_id: str, chat_id: str):
     chats = _read_chats(document_id)
@@ -302,16 +296,16 @@ def chat(req: ChatRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No user message found")
     
-    user_question = last_user_message.text
-
     if not GEMINI_API_KEY:
         response_text = (
-            f"[stub] 理解你的问题是: '{user_question}'"
+            f"[stub] 理解你的问题是: '{last_user_message.text}'"
             "。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。"
         )
         return {"role": "assistant", "text": response_text, "timestamp": time.time()}
 
     try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
         md_filename = Path(req.document_id).with_suffix('.md').name
         md_filepath = os.path.join(DOCS_DIR, md_filename)
         
@@ -323,74 +317,90 @@ def chat(req: ChatRequest):
             full_doc_md = "[无法找到完整的Markdown文档上下文]"
             print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
-        # 根据请求中是否包含 source_element_html 来构建不同的 Prompt
+        server_history = []
+        
+        context_prompt_parts = [
+            "你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。",
+            "我会给你提供[全文Markdown内容]作为主要背景，可能还会提供一段用户当前聚焦的[聚焦内容]。",
+            "你的任务是：优先基于[聚焦内容]回答问题，并结合[全文Markdown内容]必要的上下文信息。如果问题需要推导或分析，分步骤展示推理过程。如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格。如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯。",
+            "---",
+            "[全文Markdown内容]",
+            full_doc_md
+        ]
+
         if req.source_element_html:
             h = html2text.HTML2Text()
             h.ignore_links = True
             element_md = h.handle(req.source_element_html)
-            
-            prompt = f"""
-你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。
+            context_prompt_parts.extend([
+                "\n[聚焦内容]",
+                element_md
+            ])
+        
+        # 【修复】将 part 从字符串改为字典 {'text': ...}
+        full_context_string = "\n".join(context_prompt_parts)
+        server_history.append({'role': 'user', 'parts': [{'text': full_context_string}]})
+        server_history.append({'role': 'model', 'parts': [{'text': "好的，上下文已收到。请开始提问。"}]})
 
-我会给你三部分信息：
-1. 文档全文的 Markdown 内容
-2. 用户在文档中选中的“聚焦内容”
-3. 用户提出的问题
+        for msg in req.messages:
+            role = 'model' if msg.role == 'assistant' else 'user'
+            # 【修复】将 part 从字符串改为字典 {'text': ...}
+            server_history.append({'role': role, 'parts': [{'text': msg.text}]})
+        
+        last_user_message_for_model = server_history.pop()
 
-你的任务是：
-- 优先基于“聚焦内容”回答问题
-- 结合全文内容补充必要的上下文信息
-- 如果问题需要推导或分析，分步骤展示推理过程
-- 如果无法从文档中找到答案，请明确说明
-- 保持回答清晰、准确且结构化
-
-以下是输入信息：
-
-[全文Markdown内容]
-{full_doc_md}
-
-[聚焦内容]
-{element_md}
-
-[用户问题]
-{user_question}
-
-请基于以上信息进行回答。
-"""
-        else:
-            # 这是全局问题的 Prompt
-            prompt = f"""
-你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。
-
-我会给你两部分信息：
-1. 文档全文的 Markdown 内容
-2. 用户提出的问题
-
-你的任务是：
-- 基于提供的“全文Markdown内容”回答问题
-- 如果问题需要推导或分析，分步骤展示推理过程
-- 如果无法从文档中找到答案，请明确说明
-- 保持回答清晰、准确且结构化
-
-以下是输入信息：
-
-[全文Markdown内容]
-{full_doc_md}
-
-[用户问题]
-{user_question}
-
-请基于以上信息进行回答。
-"""
-
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model="gemini-1.5-flash", # 使用较新模型
-            contents=prompt,
+        chat_session = client.chats.create(
+            model="gemini-2.5-flash",
+            history=server_history
         )
+
+        # 【修复】从字典中提取文本内容发送
+        prompt = last_user_message_for_model['parts'][0]['text']
+
+        # ==== 新增：打印完整输入 ====
+        import json
+
+        print("\n" + "="*50)
+        print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
+
+        # 打印 history
+        print(">>> HISTORY >>>")
+        print(json.dumps(server_history, ensure_ascii=False, indent=2))
+
+        # 打印本次用户消息
+        print(">>> LAST USER MESSAGE >>>")
+        print(prompt)
+
+        print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+        # ==== 新增结束 ====
+        response = chat_session.send_message(prompt)
+
+        # ==== 新增：打印 AI 完整返回 ====
+        import json
+        try:
+            response_dict = response.to_dict()
+        except Exception:
+            try:
+                response_dict = json.loads(str(response))
+            except Exception:
+                response_dict = {"raw": str(response)}
+
+        print("\n" + "="*50)
+        print("====== V V V ====== GEMINI API FULL JSON ====== V V V ======")
+        print(json.dumps(response_dict, ensure_ascii=False, indent=2))
+        print("====== ^ ^ ^ ====== END OF FULL JSON ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+
+
+        # ==== 新增结束 ====
+
         ai_response_text = response.text
+
     except Exception as e:
-        print(f"Error calling Gemini API: {e}")
+        print(f"调用 Gemini API 时出错: {e}")
+        import traceback
+        traceback.print_exc()
         ai_response_text = f"调用AI服务时出错: {e}"
 
     return {"role": "assistant", "text": ai_response_text, "timestamp": time.time()}

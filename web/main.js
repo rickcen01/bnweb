@@ -40,6 +40,7 @@ const state = {
     mode: 'document', // 'document' 或 'element'
     conversation: [],
     sourceElement: null,
+    sourceNodeId: null, // <-- 【新增】记录对话来源的节点ID
   },
   // 【新增】管理侧边栏对话历史
   chats: [],
@@ -371,7 +372,7 @@ function openNodeConversation(node) {
   
   box.querySelector('.expand').addEventListener('click', () => {
     const sourceEl = els.docHtml.querySelector(`[data-atom-id="${node.source_element_id}"]`);
-    appendChatToSidebar(sourceEl, node.conversation_log || []);
+    appendChatToSidebar(sourceEl, node.conversation_log || [], node.node_id);
     box.remove();
   });
   
@@ -391,11 +392,12 @@ function openNodeConversation(node) {
 }
 
 // 【修改】此函数现在用于将对话加载到侧边栏，并切换其模式
-async function appendChatToSidebar(atomEl, conversation) {
+async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
   state.sidebarContext = {
     mode: 'element',
     conversation: [...conversation],
-    sourceElement: atomEl
+    sourceElement: atomEl,
+    sourceNodeId: nodeId
   };
 
   els.sidebarTitle.textContent = 'AI 对话 (聚焦内容)';
@@ -475,7 +477,8 @@ async function resetSidebarToDocumentMode() {
     state.sidebarContext = {
         mode: 'document',
         conversation: [],
-        sourceElement: null
+        sourceElement: null,
+        sourceNodeId: null // <-- 【新增】重置时清除
     };
     els.sidebarTitle.textContent = 'AI 对话 (全文)';
     els.sidebarInput.placeholder = '就整篇文档提问...';
@@ -606,11 +609,34 @@ function initSidebarChat() {
 
     // 【新增】处理从侧边栏创建节点
     els.saveNodeFromSidebarBtn.addEventListener('click', async () => {
-        if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
-            const node = await saveConversationAsNode(state.sidebarContext.sourceElement, state.sidebarContext.conversation);
-            addNodeToCanvas(node);
-            await resetSidebarToDocumentMode();
+        if (state.sidebarContext.mode !== 'element' || !state.sidebarContext.sourceElement) {
+            return;
         }
+
+        const { sourceElement, conversation, sourceNodeId } = state.sidebarContext;
+
+        if (sourceNodeId) {
+            // 情况一：来源是现有节点，更新它
+            const nodeToUpdate = state.nodes.find(n => n.node_id === sourceNodeId);
+            if (nodeToUpdate) {
+                nodeToUpdate.conversation_log = conversation; // 更新对话历史
+                try {
+                    await API.saveNode(state.documentId, nodeToUpdate);
+                } catch(e) {
+                    console.error("更新节点失败:", e);
+                    // 可以在这里添加本地存储的后备逻辑
+                }
+            } else {
+                console.error("要更新的节点未找到:", sourceNodeId);
+            }
+        } else {
+            // 情况二：来源是新元素，创建新节点
+            const node = await saveConversationAsNode(sourceElement, conversation);
+            addNodeToCanvas(node);
+        }
+        
+        // 操作完成后，重置侧边栏回到全局对话模式
+        await resetSidebarToDocumentMode();
     });
 }
 
