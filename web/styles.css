@@ -7,17 +7,79 @@ html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Seg
 label.upload { border: 1px dashed #bbb; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
 label.upload input { display: none; }
 
-#container { position: relative; height: calc(100% - 48px); }
-#sidebar { position: absolute; right: 0; top: 0; bottom: 0; width: 280px; border-left: 1px solid #eee; background: #fafafa; overflow: auto; transition: transform 0.2s ease; z-index: 100; }
-#sidebar.hidden { transform: translateX(100%); pointer-events: none; }
-.sidebar-header { padding: 10px; font-weight: 600; border-bottom: 1px solid #eee; }
+#container { position: relative; height: calc(100% - 48px); display: flex; }
+#sidebar { 
+    width: 400px; /* 现在是初始宽度，可以被JS修改 */
+    min-width: 300px; /* 限制最小宽度 */
+    max-width: 800px; /* 限制最大宽度 */
+    border-left: 1px solid #e0e0e0; 
+    background: #f9f9f9; 
+    transition: transform 0.25s ease-in-out, width 0s; /* 移除宽度的过渡效果，防止拖拽延迟 */
+    z-index: 100; 
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0; /* 防止flex布局压缩侧边栏 */
+    transform: translateX(0); /* 默认显示 */
+}
+#sidebar.hidden { 
+    width: 0;
+    min-width: 0;
+    border: none; /* 使用 border:none 替代 border-left:none 更彻底 */
+    padding: 0; /* 【新增】移除所有内边距 */
+    overflow: hidden; /* 【新增】隐藏所有溢出的子内容 */
+    /* 【移除】不再需要 transform */
+}
+.sidebar-header { 
+    padding: 12px 16px; 
+    font-weight: 600; 
+    border-bottom: 1px solid #e0e0e0; 
+    background-color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.sidebar-close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #888;
+    padding: 0 8px;
+    line-height: 1;
+}
+.sidebar-close-btn:hover { color: #333; }
 
-#canvasWrapper { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow: hidden; background: repeating-conic-gradient(#fafafa 0% 25%, #f5f5f5 0% 50%) 50% / 24px 24px; }
+#sidebarContent { flex: 1; overflow-y: auto; }
+
+/* 【新增】拖拽手柄样式 */
+#sidebarResizer {
+    width: 5px;
+    background-color: transparent;
+    cursor: col-resize;
+    position: relative;
+    z-index: 101;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+}
+#sidebarResizer:hover {
+    background-color: rgba(0, 123, 255, 0.3);
+}
+#sidebarResizer.hidden {
+    display: none;
+}
+
+
+#canvasWrapper { 
+    /* 【修改】使用flex: 1来自动填充剩余空间 */
+    flex: 1;
+    position: relative;
+    overflow: hidden; 
+    background: repeating-conic-gradient(#fafafa 0% 25%, #f5f5f5 0% 50%) 50% / 24px 24px; 
+}
 #canvas { position: absolute; transform-origin: 0 0; }
 #contentFrame { width: 920px; margin-left: 50%; transform: translateX(-50%); background: #fff; box-shadow: 0 4px 30px rgba(0,0,0,0.06); border-radius: 8px; padding: 16px 24px; }
 #docHtml { line-height: 1.7; color: #222; }
 
-/* Better table visuals */
 #docHtml table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.96rem; }
 #docHtml th, #docHtml td { border: 1px solid #e6e6e6; padding: 6px 8px; vertical-align: top; }
 #docHtml tr:nth-child(even) { background: #fafafa; }
@@ -27,26 +89,75 @@ label.upload input { display: none; }
 .atom .ask { position: absolute; right: -28px; top: 0; width: 22px; height: 22px; border-radius: 11px; background: rgba(0,0,0,0.6); color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transform: translateY(-4px); transition: all 0.12s ease; cursor: pointer; }
 .atom.hover .ask { opacity: 1; transform: translateY(0); }
 
-.micro-chat { width: 260px; background: #fff; border: 1px solid #e6e6e6; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.08); position: absolute; z-index: 5; }
-.micro-chat.sidebar { position: static; width: auto; margin: 10px; }
-.micro-chat .messages { max-height: 220px; overflow: auto; padding: 10px 12px; }
-.micro-chat .messages .m { margin: 6px 0; }
-.micro-chat .messages .m.user { color: #111; }
-.micro-chat .messages .m.assistant { color: #0b5; }
-.micro-chat .input { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #eee; }
-.micro-chat .input input { flex: 1; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; }
-.micro-chat .input button { padding: 6px 10px; }
+/* --- 聊天框样式 (与上次修改相同) --- */
+.micro-chat { 
+    width: 320px;
+    background: #fff; 
+    border: 1px solid #e6e6e6; 
+    border-radius: 8px; 
+    box-shadow: 0 6px 24px rgba(0,0,0,0.1); 
+    position: absolute; z-index: 5; 
+    display: flex; 
+    flex-direction: column;
+    font-size: 14px;
+}
+.micro-chat.sidebar { 
+    position: static; 
+    width: auto; 
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    height: 100%;
+}
+.micro-chat .messages { 
+    max-height: 280px; 
+    overflow: auto; 
+    padding: 16px; 
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.micro-chat.sidebar .messages { max-height: none; }
+.micro-chat .messages .m { 
+    max-width: 85%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    line-height: 1.6;
+}
+.micro-chat .messages .m.user { 
+    background: #007bff;
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+.micro-chat .messages .m.assistant { 
+    background: #f0f0f0;
+    color: #333;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+.m.assistant > *:first-child { margin-top: 0; }
+.m.assistant > *:last-child { margin-bottom: 0; }
+.m.assistant p { margin: 8px 0; }
+.m.assistant ul, .m.assistant ol { padding-left: 20px; margin: 8px 0; }
+.m.assistant li { margin-bottom: 4px; }
+.m.assistant pre { background-color: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+.m.assistant code { background-color: rgba(0,0,0,0.06); padding: 2px 5px; border-radius: 4px; font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace; }
+.m.assistant pre code { background: transparent; padding: 0; }
+.micro-chat .input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; }
+.micro-chat .input input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 18px; outline: none; transition: border-color 0.2s; }
+.micro-chat .input input:focus { border-color: #007bff; }
+.micro-chat .input button { padding: 8px 16px; border-radius: 18px; border: none; background: #007bff; color: white; cursor: pointer; }
 .micro-chat .actions { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #f0f0f0; }
 .micro-chat.sidebar .expand { display: none; }
 .micro-chat .actions button { flex: 1; padding: 6px 8px; border: 1px solid #ececec; background: #fafafa; border-radius: 6px; cursor: pointer; }
-
+.micro-chat .actions button:hover { background: #f0f0f0; border-color: #ddd; }
 .node { position: absolute; width: 28px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; cursor: grab; box-shadow: 0 2px 10px rgba(0,0,0,0.12); background: white; border: 1px solid #eaeaea; }
 .node-dot { width: 14px; height: 14px; border-radius: 7px; background: linear-gradient(135deg, #48f, #6cf); }
-
 #wires { position: absolute; left: 0; top: 0;  pointer-events: none;overflow: visible;  }
 .wire { stroke: rgba(100,100,255,0.8); stroke-width: 3; fill: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3)); }
 .wire:hover { stroke: rgba(100,100,255,1.0); stroke-width: 4; }
-
 .zoom { color: #666; }
-
-

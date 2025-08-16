@@ -290,39 +290,66 @@ def chat(req: ChatRequest):
             print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
         prompt = f"""
-你是一个智能问答助手。请根据以下提供的完整文档内容和用户当前聚焦的特定元素内容，来回答用户的问题。
+你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。
 
-[完整文档内容]
----
+我会给你三部分信息：
+1. 文档全文的 Markdown 内容（可能包含文字、公式、图片、表格）
+2. 用户在文档中选中的“聚焦内容”
+3. 用户提出的问题
+
+你的任务是：
+- 优先基于“聚焦内容”回答问题
+- 结合全文内容补充必要的上下文信息
+- 如果问题需要推导或分析，分步骤展示推理过程
+- 如果无法从文档中找到答案，请明确说明，并避免编造
+- 如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯
+- 如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格
+
+以下是输入信息：
+
+[全文Markdown内容]
 {full_doc_md}
----
 
-[用户聚焦的元素内容]
----
+[聚焦内容]
 {element_md}
----
 
 [用户问题]
 {user_question}
 
-请根据上述信息，用中文回答用户的问题。
+请基于以上信息，给出清晰、准确且结构化的回答。
+
 """
         print("\n" + "="*50)
         print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
-        # 为了终端清晰，只打印部分长内容
-        print(prompt[:1000] + "\n...\n" + prompt[-500:])
+        print(prompt)  # 打印全部
         print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
         print("="*50 + "\n")
+
 
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
         )
-        
+        # ==== 新增：打印 AI 完整返回 ====
+        import json
+        try:
+            response_dict = response.to_dict()  # SDK 提供的结构化输出
+        except Exception:
+            try:
+                response_dict = json.loads(str(response))
+            except Exception:
+                response_dict = {"raw": str(response)}
+
+        print("\n" + "="*50)
+        print("====== V V V ====== GEMINI API FULL JSON ====== V V V ======")
+        print(json.dumps(response_dict, ensure_ascii=False, indent=2))
+        print("====== ^ ^ ^ ====== END OF FULL JSON ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
         ai_response_text = response.text
     except Exception as e:
         print(f"Error calling Gemini API: {e}")
         ai_response_text = f"调用AI服务时出错: {e}"
 
     return {"role": "assistant", "text": ai_response_text, "timestamp": time.time()}
+

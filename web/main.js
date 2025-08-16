@@ -37,6 +37,8 @@ const els = {
   toggleSidebar: document.getElementById('toggleSidebar'),
   sidebar: document.getElementById('sidebar'),
   sidebarContent: document.getElementById('sidebarContent'),
+  sidebarResizer: document.getElementById('sidebarResizer'),
+  collapseSidebarBtn: document.getElementById('collapseSidebarBtn'),
   zoomValue: document.getElementById('zoomValue'),
   canvasWrapper: document.getElementById('canvasWrapper'),
   canvas: document.getElementById('canvas'),
@@ -56,7 +58,7 @@ function initPanZoom() {
   let isPanning = false;
   let last = { x: 0, y: 0 };
   els.canvasWrapper.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.micro-chat') || e.target.closest('.node')) return;
+    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer) return;
     isPanning = true; last = { x: e.clientX, y: e.clientY };
   });
   window.addEventListener('mousemove', (e) => {
@@ -85,10 +87,7 @@ function annotateAtoms() {
     n.classList.add('atom');
     const id = `atom-${++state.elementIdCounter}`;
     n.dataset.atomId = id;
-    
-    // 在MathJax等库修改DOM之前，将原始的HTML内容存储在data属性中
     n.dataset.originalHtml = n.outerHTML;
-
     const ask = document.createElement('div');
     ask.className = 'ask';
     ask.textContent = '?';
@@ -101,6 +100,7 @@ function annotateAtoms() {
     });
   });
 }
+
 function toggleNodeConversation(node) {
   const existingChat = document.querySelector(`.micro-chat[data-node-id-ref='${node.node_id}']`);
   if (existingChat) {
@@ -109,72 +109,62 @@ function toggleNodeConversation(node) {
     openNodeConversation(node);
   }
 }
+
 function openMicroChat(atomEl) {
   closeAllMicroChats();
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
-
   const rect = atomEl.getBoundingClientRect();
   const parentRect = els.canvas.getBoundingClientRect();
   const contentFrameRect = els.contentFrame.getBoundingClientRect();
-
   const offsetX = contentFrameRect.right - parentRect.left;
   const offsetY = rect.top - parentRect.top;
-
   const left = offsetX / state.zoom + 24;
   const top = offsetY / state.zoom;
-
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
   els.canvas.appendChild(box);
-
   const input = box.querySelector('input');
   const sendBtn = box.querySelector('.send');
   const messagesEl = box.querySelector('.messages');
   const saveBtn = box.querySelector('.save');
   const expandBtn = box.querySelector('.expand');
   const discardBtn = box.querySelector('.discard');
-
   let conversation = [];
 
   async function send() {
     const text = input.value.trim(); if (!text) return;
     input.value = '';
     conversation.push({ role: 'user', text, timestamp: Date.now() });
-    renderMessages(messagesEl, conversation);
-    
-    // 发送我们之前缓存的、未经渲染的原始HTML
+    await renderMessages(messagesEl, conversation);
     const payload = {
       document_id: state.documentId,
       source_element_id: atomEl.dataset.atomId,
       messages: conversation,
-      source_element_html: atomEl.dataset.originalHtml, // 使用缓存的原始HTML
+      source_element_html: atomEl.dataset.originalHtml,
     };
-    
     try {
       const res = await API.chat(payload);
       conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
-      renderMessages(messagesEl, conversation);
+      await renderMessages(messagesEl, conversation);
     } catch (err) {
       conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
-      renderMessages(messagesEl, conversation);
+      await renderMessages(messagesEl, conversation);
     }
   }
 
   sendBtn.addEventListener('click', send);
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-
   saveBtn.addEventListener('click', async () => {
     const node = await saveConversationAsNode(atomEl, conversation);
     box.remove();
     addNodeToCanvas(node);
   });
-
   expandBtn.addEventListener('click', () => {
     els.sidebar.classList.remove('hidden');
+    els.sidebarResizer.classList.remove('hidden');
     appendChatToSidebar(atomEl, conversation);
   });
-
   discardBtn.addEventListener('click', () => { box.remove(); });
 }
 
@@ -182,14 +172,27 @@ function closeAllMicroChats() {
   document.querySelectorAll('.micro-chat').forEach(e => e.remove());
 }
 
-function renderMessages(container, messages) {
+async function renderMessages(container, messages) {
   container.innerHTML = '';
-  messages.forEach(m => {
+  for (const m of messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
-    div.textContent = m.text;
+    if (m.role === 'assistant' && window.marked) {
+      div.innerHTML = marked.parse(m.text, { breaks: true }); // Using breaks option for better line breaks
+    } else {
+      div.textContent = m.text;
+    }
     container.appendChild(div);
-  });
+  }
+  
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    try {
+      await window.MathJax.typesetPromise([container]);
+    } catch (err) {
+      console.error("MathJax typesetting error:", err);
+    }
+  }
+  
   container.scrollTop = container.scrollHeight;
 }
 
@@ -199,9 +202,8 @@ async function saveConversationAsNode(atomEl, conversation) {
     document_id: state.documentId,
     source_element_id: atomEl.dataset.atomId,
     canvas_position: {
-      x: (atomEl.getBoundingClientRect().left - els.canvas.getBoundingClientRect().left) / state.zoom - state.panX / state.zoom,
-      y: (atomEl.getBoundingClientRect().top - els.canvas.getBoundingClientRect().top) / state.zoom - state.panY / state.zoom,
-      zoom_level: state.zoom
+      x: (atomEl.getBoundingClientRect().left - els.canvas.getBoundingClientRect().left) / state.zoom,
+      y: (atomEl.getBoundingClientRect().top - els.canvas.getBoundingClientRect().top) / state.zoom,
     },
     conversation_log: conversation,
     user_annotations: null
@@ -226,7 +228,6 @@ function addNodeToCanvas(node) {
   el.dataset.nodeId = node.node_id;
   el.dataset.sourceId = node.source_element_id;
   el.title = '点击展开/收缩对话';
-
   el.addEventListener('click', () => toggleNodeConversation(node));
   enableNodeDrag(el, node);
   els.canvas.appendChild(el);
@@ -234,107 +235,115 @@ function addNodeToCanvas(node) {
 }
 
 function enableNodeDrag(el, node) {
-  let dragging = false; let start = { x: 0, y: 0 }; let origin = { x: 0, y: 0 };
+  let dragging = false; let start = { x: 0, y: 0 };
   el.addEventListener('mousedown', (e) => {
-    dragging = true; start = { x: e.clientX, y: e.clientY };
-    const rect = el.getBoundingClientRect(); const parent = els.canvas.getBoundingClientRect();
-    origin = { x: rect.left - parent.left, y: rect.top - parent.top };
+    e.stopPropagation();
+    dragging = true; 
+    start = { x: e.clientX, y: e.clientY };
     el.style.cursor = 'grabbing';
   });
-  window.addEventListener('mousemove', async (e) => {
+  window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    const dx = (e.clientX - start.x) / state.zoom; const dy = (e.clientY - start.y) / state.zoom;
-    const nx = origin.x + dx; const ny = origin.y + dy;
-    el.style.left = `${nx}px`; el.style.top = `${ny}px`;
-    node.canvas_position.x = nx; node.canvas_position.y = ny; redrawWires();
+    const dx = (e.clientX - start.x) / state.zoom; 
+    const dy = (e.clientY - start.y) / state.zoom;
+    const newX = parseFloat(el.style.left) + dx;
+    const newY = parseFloat(el.style.top) + dy;
+    el.style.left = `${newX}px`; 
+    el.style.top = `${newY}px`;
+    node.canvas_position.x = newX; 
+    node.canvas_position.y = newY; 
+    start = { x: e.clientX, y: e.clientY };
+    redrawWires();
   });
   window.addEventListener('mouseup', async () => {
-    if (!dragging) return; dragging = false; el.style.cursor = 'grab';
+    if (!dragging) return; 
+    dragging = false; 
+    el.style.cursor = 'grab';
     try { await API.saveNode(state.documentId, node); } catch {}
   });
 }
 
+
 function redrawWires() {
   els.wires.innerHTML = '';
+  els.wires.setAttribute('width', els.canvas.scrollWidth);
+  els.wires.setAttribute('height', els.canvas.scrollHeight);
+  
   state.nodes.forEach(node => {
-    const nodeEl = [...document.querySelectorAll('.node')].find(e => e.dataset.nodeId === node.node_id);
-    let srcEl = els.docHtml.querySelector(`[data-atom-id="${node.source_element_id}"]`);
-    if (!srcEl) {
-      srcEl = els.docHtml.querySelector(`[data-atomId="${node.source_element_id}"]`);
-    }
+    const nodeEl = document.querySelector(`.node[data-node-id="${node.node_id}"]`);
+    const srcEl = els.docHtml.querySelector(`[data-atom-id="${node.source_element_id}"]`);
+    
     if (!nodeEl || !srcEl) return;
     
     const nodeRect = nodeEl.getBoundingClientRect();
     const srcRect = srcEl.getBoundingClientRect();
     const canvasRect = els.canvas.getBoundingClientRect();
     
-    const x1 = (nodeRect.left - canvasRect.left) / state.zoom;
-    const y1 = (nodeRect.top - canvasRect.top) / state.zoom;
+    const x1 = (nodeRect.left + nodeRect.width / 2 - canvasRect.left) / state.zoom;
+    const y1 = (nodeRect.top + nodeRect.height / 2 - canvasRect.top) / state.zoom;
     const x2 = (srcRect.left - canvasRect.left) / state.zoom;
-    const y2 = (srcRect.top - canvasRect.top) / state.zoom;
-    
+    const y2 = (srcRect.top + srcRect.height / 2 - canvasRect.top) / state.zoom;
+
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    const dx = Math.abs(x2 - x1) * 0.5; const dy = 40;
-    const d = `M ${x1},${y1} C ${x1+dx},${y1+dy} ${x2-dx},${y2-dy} ${x2},${y2}`;
-    path.setAttribute('d', d); path.setAttribute('class', 'wire');
+    const d = `M ${x1},${y1} C ${x1 - 50},${y1} ${x2 - 150},${y2} ${x2},${y2}`;
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'wire');
     els.wires.appendChild(path);
   });
 }
 
 function openNodeConversation(node) {
+  closeAllMicroChats();
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
-  const nodeEl = [...document.querySelectorAll('.node')].find(e => e.dataset.nodeId === node.node_id);
+  const nodeEl = document.querySelector(`.node[data-node-id="${node.node_id}"]`);
   if (!nodeEl) return;
   box.dataset.nodeIdRef = node.node_id;
-  const rect = nodeEl.getBoundingClientRect();
-  const parentRect = els.canvas.getBoundingClientRect();
-  
-  const chatBoxWidth = 260;
-  const gap = 8;
 
-  const left = (rect.left - parentRect.left) / state.zoom - chatBoxWidth - (gap / state.zoom);
-  const top = (rect.top - parentRect.top) / state.zoom;
-
+  const chatBoxWidth = 320;
+  const gap = 16;
+  const left = parseFloat(nodeEl.style.left) - chatBoxWidth - gap;
+  const top = parseFloat(nodeEl.style.top);
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
+
   const messagesEl = box.querySelector('.messages');
   renderMessages(messagesEl, node.conversation_log || []);
-  box.querySelector('.save').addEventListener('click', async () => {
-    try { await API.saveNode(state.documentId, node); } catch {}
-    box.remove();
-  });
+
+  box.querySelector('.save').addEventListener('click', () => box.remove());
   box.querySelector('.expand').addEventListener('click', () => {
     els.sidebar.classList.remove('hidden');
+    els.sidebarResizer.classList.remove('hidden');
     appendChatToSidebar({ dataset: { atomId: node.source_element_id } }, node.conversation_log || []);
-  });
-  box.querySelector('.discard').addEventListener('click', () => {
-    if (node && node.node_id) {
-      API.deleteNode(state.documentId, node.node_id).catch(() => {});
-      state.nodes = state.nodes.filter(n => n.node_id !== node.node_id);
-      const el = document.querySelector(`.node[data-node-id='${node.node_id}']`);
-      if (el) el.remove();
-      redrawWires();
-    }
     box.remove();
   });
+  box.querySelector('.discard').addEventListener('click', async () => {
+    if (confirm('确定要删除这个知识节点吗？')) {
+      try {
+        await API.deleteNode(state.documentId, node.node_id);
+        state.nodes = state.nodes.filter(n => n.node_id !== node.node_id);
+        nodeEl.remove();
+        box.remove();
+        redrawWires();
+      } catch {}
+    }
+  });
+
   els.canvas.appendChild(box);
 }
 
-function appendChatToSidebar(atomEl, conversation) {
+async function appendChatToSidebar(atomEl, conversation) {
   els.sidebarContent.innerHTML = '';
-  
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const mc = tpl.querySelector('.micro-chat');
   mc.classList.add('sidebar');
-  
+
+  // 【修改】先将空的聊天框添加到DOM，然后再填充内容
+  els.sidebarContent.appendChild(mc);
+
   const messagesEl = mc.querySelector('.messages');
-  renderMessages(messagesEl, conversation);
-  
-  const title = document.createElement('div');
-  title.textContent = `与元素 ${atomEl?.dataset?.atomId || '未知'} 的对话`;
-  title.style.cssText = 'font-weight: 600; padding: 8px 10px; border-bottom: 1px solid #eee; margin-bottom: 8px;';
-  mc.insertBefore(title, mc.firstChild);
+  // 现在，当renderMessages被调用时，messagesEl已经是DOM的一部分
+  await renderMessages(messagesEl, conversation); 
   
   const saveBtn = mc.querySelector('.save');
   const discardBtn = mc.querySelector('.discard');
@@ -342,6 +351,7 @@ function appendChatToSidebar(atomEl, conversation) {
   saveBtn.textContent = '关闭';
   saveBtn.addEventListener('click', () => {
     els.sidebar.classList.add('hidden');
+    els.sidebarResizer.classList.add('hidden');
   });
 
   discardBtn.textContent = '清空';
@@ -349,23 +359,19 @@ function appendChatToSidebar(atomEl, conversation) {
     els.sidebarContent.innerHTML = '';
   });
   
-  els.sidebarContent.appendChild(mc);
   els.sidebar.classList.remove('hidden');
+  els.sidebarResizer.classList.remove('hidden');
 }
+
 
 async function loadDocument(id) {
   state.documentId = id;
   const html = await API.getDocHtml(id).catch(() => '<p style="color:#a00">无法加载文档</p>');
   els.docHtml.innerHTML = html;
-
-  // 关键：在MathJax渲染之前，调用annotateAtoms来缓存原始HTML
   annotateAtoms();
-  
-  // 在缓存之后，再进行公式渲染，这样只影响显示
   if (window.MathJax && window.MathJax.typesetPromise) {
     try { await window.MathJax.typesetPromise([els.docHtml]); } catch {}
   }
-  
   await loadNodes(id);
 }
 
@@ -389,7 +395,6 @@ async function refreshDocs() {
     opt.value = d.document_id; opt.textContent = d.title; els.select.appendChild(opt);
   });
   if (docs.length) {
-    // 默认加载下拉列表中的第一个文档
     els.select.value = docs[0].document_id; 
     await loadDocument(docs[0].document_id);
   } else {
@@ -398,12 +403,6 @@ async function refreshDocs() {
 }
 
 function initUI() {
-  els.toggleSidebar.addEventListener('click', () => els.sidebar.classList.toggle('hidden'));
-  console.log('Sidebar elements:', {
-    sidebar: els.sidebar,
-    toggleBtn: els.toggleSidebar,
-    content: els.sidebarContent
-  });
   els.select.addEventListener('change', () => loadDocument(els.select.value));
   els.upload.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -421,14 +420,61 @@ function initUI() {
   });
 }
 
+function initSidebar() {
+    const toggle = () => {
+        const isHidden = els.sidebar.classList.toggle('hidden');
+        els.sidebarResizer.classList.toggle('hidden', isHidden);
+    };
+
+    els.toggleSidebar.addEventListener('click', toggle);
+    els.collapseSidebarBtn.addEventListener('click', () => {
+        els.sidebar.classList.add('hidden');
+        els.sidebarResizer.classList.add('hidden');
+    });
+
+    let isResizing = false;
+    els.sidebarResizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        isResizing = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        const onMouseMove = (e) => {
+            if (!isResizing) return;
+            const containerRect = document.querySelector('#container').getBoundingClientRect();
+            let newWidth = containerRect.right - e.clientX;
+            
+            const minWidth = parseInt(getComputedStyle(els.sidebar).minWidth, 10) || 300;
+            const maxWidth = parseInt(getComputedStyle(els.sidebar).maxWidth, 10) || 800;
+            if (newWidth < minWidth) newWidth = minWidth;
+            if (newWidth > maxWidth) newWidth = maxWidth;
+
+            els.sidebar.style.width = `${newWidth}px`;
+        };
+
+        const onMouseUp = () => {
+            isResizing = false;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    });
+}
+
 function boot() {
   initPanZoom();
   initUI();
+  initSidebar(); 
   const wrapper = els.canvasWrapper.getBoundingClientRect();
-  state.panX = wrapper.width / 2 - 460;
+  state.panX = (wrapper.width - 920) / 2;
   state.panY = 60;
   setTransform();
   els.sidebar.classList.add('hidden');
+  els.sidebarResizer.classList.add('hidden');
   refreshDocs();
 }
 

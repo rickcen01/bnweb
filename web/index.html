@@ -9,6 +9,7 @@
       window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] }, svg: {fontCache: 'global'} };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <div id="topbar">
@@ -31,11 +32,7 @@
     </div>
 
     <div id="container">
-      <div id="sidebar" class="hidden">
-        <div class="sidebar-header">AI对话区</div>
-        <div id="sidebarContent"></div>
-      </div>
-
+      <!-- 【修改】将canvasWrapper移到最前面，以修复侧边栏在左边的问题 -->
       <div id="canvasWrapper">
         <div id="canvas">
           <div id="contentFrame">
@@ -43,6 +40,17 @@
           </div>
           <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
+      </div>
+
+      <!-- 侧边栏和其拖拽手柄现在位于容器的末尾，会被flex布局推到右侧 -->
+      <div id="sidebarResizer" class="hidden"></div>
+      
+      <div id="sidebar" class="hidden">
+        <div class="sidebar-header">
+          <span>AI对话区</span>
+          <button id="collapseSidebarBtn" class="sidebar-close-btn" title="收起侧边栏">&times;</button>
+        </div>
+        <div id="sidebarContent"></div>
       </div>
     </div>
 
@@ -70,5 +78,3 @@
     <script src="/web/main.js"></script>
   </body>
   </html>
-
-
