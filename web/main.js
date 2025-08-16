@@ -1,3 +1,5 @@
+// web/main.js
+
 const API = {
   listDocs: async () => fetch('/api/documents').then(r => r.json()),
   getDocHtml: async (id) => fetch(`/api/document/${encodeURIComponent(id)}`).then(r => r.text()),
@@ -28,6 +30,12 @@ const state = {
   documentId: null,
   nodes: [],
   elementIdCounter: 0,
+  // 【新增】管理侧边栏状态
+  sidebarContext: {
+    mode: 'document', // 'document' 或 'element'
+    conversation: [],
+    sourceElement: null,
+  }
 };
 
 const els = {
@@ -36,7 +44,6 @@ const els = {
   uploadPdf: document.getElementById('uploadPdfInput'),
   toggleSidebar: document.getElementById('toggleSidebar'),
   sidebar: document.getElementById('sidebar'),
-  sidebarContent: document.getElementById('sidebarContent'),
   sidebarResizer: document.getElementById('sidebarResizer'),
   collapseSidebarBtn: document.getElementById('collapseSidebarBtn'),
   zoomValue: document.getElementById('zoomValue'),
@@ -47,6 +54,14 @@ const els = {
   wires: document.getElementById('wires'),
   microChatTemplate: document.getElementById('microChatTemplate'),
   nodeTemplate: document.getElementById('nodeTemplate'),
+  // 【新增】侧边栏聊天组件的引用
+  sidebarTitle: document.getElementById('sidebarTitle'),
+  resetSidebarBtn: document.getElementById('resetSidebarBtn'),
+  sidebarChatInstance: document.getElementById('sidebarChatInstance'),
+  sidebarMessages: document.querySelector('#sidebarChatInstance .messages'),
+  sidebarInput: document.querySelector('#sidebarChatInstance .input input'),
+  sidebarSendBtn: document.querySelector('#sidebarChatInstance .send'),
+  sidebarDiscardBtn: document.querySelector('#sidebarChatInstance .discard'),
 };
 
 function setTransform() {
@@ -161,15 +176,15 @@ function openMicroChat(atomEl) {
     addNodeToCanvas(node);
   });
   expandBtn.addEventListener('click', () => {
-    els.sidebar.classList.remove('hidden');
-    els.sidebarResizer.classList.remove('hidden');
+    // 【修改】调用新的函数，将对话加载到侧边栏
     appendChatToSidebar(atomEl, conversation);
+    box.remove();
   });
   discardBtn.addEventListener('click', () => { box.remove(); });
 }
 
 function closeAllMicroChats() {
-  document.querySelectorAll('.micro-chat').forEach(e => e.remove());
+  document.querySelectorAll('.micro-chat:not(.sidebar)').forEach(e => e.remove());
 }
 
 async function renderMessages(container, messages) {
@@ -178,7 +193,7 @@ async function renderMessages(container, messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
     if (m.role === 'assistant' && window.marked) {
-      div.innerHTML = marked.parse(m.text, { breaks: true }); // Using breaks option for better line breaks
+      div.innerHTML = marked.parse(m.text, { breaks: true });
     } else {
       div.textContent = m.text;
     }
@@ -186,11 +201,7 @@ async function renderMessages(container, messages) {
   }
   
   if (window.MathJax && window.MathJax.typesetPromise) {
-    try {
-      await window.MathJax.typesetPromise([container]);
-    } catch (err) {
-      console.error("MathJax typesetting error:", err);
-    }
+    try { await window.MathJax.typesetPromise([container]); } catch (err) { console.error("MathJax typesetting error:", err); }
   }
   
   container.scrollTop = container.scrollHeight;
@@ -204,6 +215,7 @@ async function saveConversationAsNode(atomEl, conversation) {
     canvas_position: {
       x: (atomEl.getBoundingClientRect().left - els.canvas.getBoundingClientRect().left) / state.zoom,
       y: (atomEl.getBoundingClientRect().top - els.canvas.getBoundingClientRect().top) / state.zoom,
+      zoom_level: state.zoom
     },
     conversation_log: conversation,
     user_annotations: null
@@ -263,7 +275,6 @@ function enableNodeDrag(el, node) {
   });
 }
 
-
 function redrawWires() {
   els.wires.innerHTML = '';
   els.wires.setAttribute('width', els.canvas.scrollWidth);
@@ -312,9 +323,7 @@ function openNodeConversation(node) {
 
   box.querySelector('.save').addEventListener('click', () => box.remove());
   box.querySelector('.expand').addEventListener('click', () => {
-    els.sidebar.classList.remove('hidden');
-    els.sidebarResizer.classList.remove('hidden');
-    appendChatToSidebar({ dataset: { atomId: node.source_element_id } }, node.conversation_log || []);
+    appendChatToSidebar({ dataset: { atomId: node.source_element_id, originalHtml: node.source_element_html || '' } }, node.conversation_log || []);
     box.remove();
   });
   box.querySelector('.discard').addEventListener('click', async () => {
@@ -332,32 +341,19 @@ function openNodeConversation(node) {
   els.canvas.appendChild(box);
 }
 
+// 【重构】此函数现在用于将对话加载到侧边栏，并切换其模式
 async function appendChatToSidebar(atomEl, conversation) {
-  els.sidebarContent.innerHTML = '';
-  const tpl = els.microChatTemplate.content.cloneNode(true);
-  const mc = tpl.querySelector('.micro-chat');
-  mc.classList.add('sidebar');
+  state.sidebarContext = {
+    mode: 'element',
+    conversation: [...conversation],
+    sourceElement: atomEl
+  };
 
-  // 【修改】先将空的聊天框添加到DOM，然后再填充内容
-  els.sidebarContent.appendChild(mc);
-
-  const messagesEl = mc.querySelector('.messages');
-  // 现在，当renderMessages被调用时，messagesEl已经是DOM的一部分
-  await renderMessages(messagesEl, conversation); 
+  els.sidebarTitle.textContent = 'AI 对话 (聚焦内容)';
+  els.sidebarInput.placeholder = '就选中内容继续提问...';
+  els.resetSidebarBtn.classList.remove('hidden');
   
-  const saveBtn = mc.querySelector('.save');
-  const discardBtn = mc.querySelector('.discard');
-
-  saveBtn.textContent = '关闭';
-  saveBtn.addEventListener('click', () => {
-    els.sidebar.classList.add('hidden');
-    els.sidebarResizer.classList.add('hidden');
-  });
-
-  discardBtn.textContent = '清空';
-  discardBtn.addEventListener('click', () => {
-    els.sidebarContent.innerHTML = '';
-  });
+  await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
   
   els.sidebar.classList.remove('hidden');
   els.sidebarResizer.classList.remove('hidden');
@@ -395,8 +391,10 @@ async function refreshDocs() {
     opt.value = d.document_id; opt.textContent = d.title; els.select.appendChild(opt);
   });
   if (docs.length) {
-    els.select.value = docs[0].document_id; 
-    await loadDocument(docs[0].document_id);
+    if (!state.documentId || !docs.find(d => d.document_id === state.documentId)) {
+        els.select.value = docs[0].document_id;
+        await loadDocument(docs[0].document_id);
+    }
   } else {
     els.docHtml.innerHTML = '<p style="color:#666">请先上传HTML或PDF文档</p>';
   }
@@ -418,6 +416,62 @@ function initUI() {
       await loadDocument(res.document_id);
     }
   });
+}
+
+// 【新增】重置侧边栏为全局对话模式
+async function resetSidebarToDocumentMode() {
+    state.sidebarContext = {
+        mode: 'document',
+        conversation: [],
+        sourceElement: null
+    };
+    els.sidebarTitle.textContent = 'AI 对话 (全文)';
+    els.sidebarInput.placeholder = '就整篇文档提问...';
+    els.resetSidebarBtn.classList.add('hidden');
+    await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+}
+
+// 【新增】初始化侧边栏的永久对话功能
+function initSidebarChat() {
+    const send = async () => {
+        const text = els.sidebarInput.value.trim();
+        if (!text) return;
+        
+        els.sidebarInput.value = '';
+        state.sidebarContext.conversation.push({ role: 'user', text, timestamp: Date.now() });
+        await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+
+        const payload = {
+            document_id: state.documentId,
+            messages: state.sidebarContext.conversation,
+        };
+
+        // 根据模式决定是否添加聚焦元素信息
+        if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
+            payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
+            payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
+        }
+
+        try {
+            const res = await API.chat(payload);
+            state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
+            await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+        } catch (err) {
+            state.sidebarContext.conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
+            await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+        }
+    };
+
+    els.sidebarSendBtn.addEventListener('click', send);
+    els.sidebarInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+    els.sidebarDiscardBtn.addEventListener('click', () => {
+        if (confirm('确定要清空当前对话吗？')) {
+            state.sidebarContext.conversation = [];
+            renderMessages(els.sidebarMessages, []);
+        }
+    });
+
+    els.resetSidebarBtn.addEventListener('click', resetSidebarToDocumentMode);
 }
 
 function initSidebar() {
@@ -444,8 +498,8 @@ function initSidebar() {
             const containerRect = document.querySelector('#container').getBoundingClientRect();
             let newWidth = containerRect.right - e.clientX;
             
-            const minWidth = parseInt(getComputedStyle(els.sidebar).minWidth, 10) || 300;
-            const maxWidth = parseInt(getComputedStyle(els.sidebar).maxWidth, 10) || 800;
+            const minWidth = 300;
+            const maxWidth = 800;
             if (newWidth < minWidth) newWidth = minWidth;
             if (newWidth > maxWidth) newWidth = maxWidth;
 
@@ -468,13 +522,17 @@ function initSidebar() {
 function boot() {
   initPanZoom();
   initUI();
-  initSidebar(); 
+  initSidebar();
+  initSidebarChat(); // 【新增】初始化侧边栏聊天
+  
   const wrapper = els.canvasWrapper.getBoundingClientRect();
   state.panX = (wrapper.width - 920) / 2;
   state.panY = 60;
   setTransform();
+  
   els.sidebar.classList.add('hidden');
   els.sidebarResizer.classList.add('hidden');
+  
   refreshDocs();
 }
 

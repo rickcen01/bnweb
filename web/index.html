@@ -1,3 +1,5 @@
+<!-- web/index.html -->
+
 <!doctype html>
 <html lang="zh-CN">
   <head>
@@ -26,13 +28,12 @@
         </label>
       </div>
       <div class="right">
-        <button id="toggleSidebar">侧边栏</button>
+        <button id="toggleSidebar">AI助手</button>
         <span class="zoom">缩放: <span id="zoomValue">100%</span></span>
       </div>
     </div>
 
     <div id="container">
-      <!-- 【修改】将canvasWrapper移到最前面，以修复侧边栏在左边的问题 -->
       <div id="canvasWrapper">
         <div id="canvas">
           <div id="contentFrame">
@@ -42,15 +43,27 @@
         </div>
       </div>
 
-      <!-- 侧边栏和其拖拽手柄现在位于容器的末尾，会被flex布局推到右侧 -->
       <div id="sidebarResizer" class="hidden"></div>
       
       <div id="sidebar" class="hidden">
         <div class="sidebar-header">
-          <span>AI对话区</span>
+          <span id="sidebarTitle">AI 对话 (全文)</span>
+          <button id="resetSidebarBtn" class="hidden" title="返回全文对话模式">返回</button>
           <button id="collapseSidebarBtn" class="sidebar-close-btn" title="收起侧边栏">&times;</button>
         </div>
-        <div id="sidebarContent"></div>
+        <!-- 【新增】默认的、永久的聊天界面 -->
+        <div id="sidebarContent">
+            <div class="micro-chat sidebar" id="sidebarChatInstance">
+                <div class="messages"></div>
+                <div class="input">
+                    <input type="text" placeholder="就整篇文档提问..." />
+                    <button class="send">发送</button>
+                </div>
+                <div class="actions">
+                    <button class="discard">清空对话</button>
+                </div>
+            </div>
+        </div>
       </div>
     </div>
 
@@ -77,4 +90,4 @@
 
     <script src="/web/main.js"></script>
   </body>
-  </html>
+</html>

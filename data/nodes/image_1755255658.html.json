@@ -1,0 +1,26 @@
+[
+  {
+    "node_id": "5c2f87b9-a794-41ac-91d9-ee6168d17a36",
+    "document_id": "image_1755255658.html",
+    "source_element_id": "atom-3",
+    "canvas_position": {
+      "x": -177.4621188003905,
+      "y": 175.41211880039052,
+      "zoom_level": 0.7408182206817177
+    },
+    "conversation_log": [],
+    "user_annotations": null
+  },
+  {
+    "node_id": "72d15194-ba68-4935-a08b-c9bc71ac7b20",
+    "document_id": "image_1755255658.html",
+    "source_element_id": "atom-1",
+    "canvas_position": {
+      "x": -56.3692,
+      "y": -72.58187872929987,
+      "zoom_level": 0.6237535129177525
+    },
+    "conversation_log": [],
+    "user_annotations": null
+  }
+]
