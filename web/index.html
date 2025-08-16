@@ -1,5 +1,3 @@
-<!-- web/index.html -->
-
 <!doctype html>
 <html lang="zh-CN">
   <head>
@@ -60,8 +58,12 @@
         <div id="sidebarContent">
             <div class="micro-chat sidebar" id="sidebarChatInstance">
                 <div class="messages"></div>
+                <!-- 【修改】输入框结构，以支持元素标签 -->
                 <div class="input">
-                    <input type="text" placeholder="就整篇文档提问..." />
+                    <div id="sidebarInputWrapper">
+                        <div id="sidebarSelectedElements"></div>
+                        <input type="text" placeholder="拖拽或Ctrl+点击元素以选中..." />
+                    </div>
                     <button class="send">发送</button>
                 </div>
                 <div class="actions">

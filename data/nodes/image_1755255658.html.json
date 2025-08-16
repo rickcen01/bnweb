@@ -1,39 +1,5 @@
 [
   {
-    "node_id": "7e5df2c8-a43d-4b22-a6c1-34a6acebb146",
-    "document_id": "image_1755255658.html",
-    "source_element_id": "atom-13",
-    "canvas_position": {
-      "x": -485.53,
-      "y": 750.804,
-      "zoom_level": 1.0000000000000002
-    },
-    "conversation_log": [
-      {
-        "role": "user",
-        "text": "这个公式最早出自哪里",
-        "timestamp": 1755326315671.0
-      },
-      {
-        "role": "assistant",
-        "text": "根据您提供的[聚焦内容]和[全文Markdown内容]，该公式 $\\Delta _ { \\mathrm { { w } } } ~ = ~ { \\frac { T _ { D } } { 2 \\sin { \\frac { \\alpha } { 2 } } } }$ 出现在“5.3.3定位误差的分析与计算”章节的“3、定位误差的计算事例（V形块定位）”部分。\n\n**但是，您提供的文档中并未说明这个公式最早出自哪里，或者由谁提出。** 文档只是作为机床夹具设计教学内容的一部分给出了这个公式及其应用。",
-        "timestamp": 1755326317.7883446
-      },
-      {
-        "role": "user",
-        "text": "我刚刚问的是什么问题",
-        "timestamp": 1755326335480.0
-      },
-      {
-        "role": "assistant",
-        "text": "您刚才问的问题是：**“这个公式最早出自哪里”**。",
-        "timestamp": 1755326336.527919
-      }
-    ],
-    "user_annotations": null,
-    "source_element_html": "<p class=\"atom\" data-atom-id=\"atom-13\">$$\n\\Delta _ { \\mathrm { { w } } } ~ = ~ { \\frac { T _ { D } } { 2 \\sin { \\frac { \\alpha } { 2 } } } }\n$$</p>"
-  },
-  {
     "node_id": "2e8d3248-c13e-4842-beee-e650cbfdc104",
     "document_id": "image_1755255658.html",
     "source_element_id": "atom-9",
@@ -45,30 +11,6 @@
     "conversation_log": [],
     "user_annotations": null,
     "source_element_html": "<tr class=\"atom\" data-atom-id=\"atom-9\"><td>H2尺寸：上母线</td><td>圆心</td><td>△B≠0,△w≠0</td></tr>"
-  },
-  {
-    "node_id": "6619a194-dce7-4bdf-a675-5e888e78b051",
-    "document_id": "image_1755255658.html",
-    "source_element_id": "atom-4",
-    "canvas_position": {
-      "x": -41.5438,
-      "y": 108.719,
-      "zoom_level": 0.5488116360940263
-    },
-    "conversation_log": [
-      {
-        "role": "user",
-        "text": "你好",
-        "timestamp": 1755332177576.0
-      },
-      {
-        "role": "assistant",
-        "text": "您好！我是一名教育与知识解释助手。很高兴为您服务。\n\n我已经仔细阅读了您提供的[全文Markdown内容]和[聚焦内容]，准备好为您解析和回答相关问题。\n\n请问您有什么具体的问题需要我帮忙解答吗？",
-        "timestamp": 1755332179.1805046
-      }
-    ],
-    "user_annotations": null,
-    "source_element_html": "<table class=\"atom\" data-atom-id=\"atom-4\"><tbody><tr><td>工序基准</td><td>定位基准</td><td>△D</td></tr><tr><td>H尺寸：O</td><td>圆心</td><td>△B=0,△w≠0</td></tr><tr><td>H尺寸：下母线</td><td>圆心</td><td>△B≠0,△w≠0</td></tr><tr><td>H2尺寸：上母线</td><td>圆心</td><td>△B≠0,△w≠0</td></tr></tbody></table>"
   },
   {
     "node_id": "1d39cb33-4567-4da0-a120-2d2727ebf79c",

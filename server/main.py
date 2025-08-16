@@ -1,3 +1,5 @@
+# server/main.py
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,12 +34,12 @@ except Exception:
 DATA_DIR = os.path.join(ROOT_DIR, 'data')
 DOCS_DIR = os.path.join(DATA_DIR, 'documents')
 NODES_DIR = os.path.join(DATA_DIR, 'nodes')
-CHATS_DIR = os.path.join(DATA_DIR, 'chats') # 【新增】对话历史存储目录
+CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 WEB_DIR = os.path.join(ROOT_DIR, 'web')
 
 os.makedirs(DOCS_DIR, exist_ok=True)
 os.makedirs(NODES_DIR, exist_ok=True)
-os.makedirs(CHATS_DIR, exist_ok=True) # 【新增】创建目录
+os.makedirs(CHATS_DIR, exist_ok=True)
 
 
 class Message(BaseModel):
@@ -59,10 +61,9 @@ class KnowledgeNode(BaseModel):
     canvas_position: CanvasPosition
     conversation_log: List[Message]
     user_annotations: Optional[str] = None
-    source_element_html: Optional[str] = None # 【新增】保存原始HTML
+    source_element_html: Optional[str] = None
 
 
-# 【新增】侧边栏对话历史的数据模型
 class ChatSession(BaseModel):
     id: str
     name: str
@@ -286,6 +287,7 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     source_element_id: Optional[str] = None
     source_element_html: Optional[str] = None
+    selected_elements_html: Optional[List[str]] = None
 
 
 GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
@@ -317,34 +319,53 @@ def chat(req: ChatRequest):
             full_doc_md = "[无法找到完整的Markdown文档上下文]"
             print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        
+        focused_content_md = ""
+        
+        if req.selected_elements_html:
+            md_parts = []
+            for i, html_chunk in enumerate(req.selected_elements_html):
+                element_md = h.handle(html_chunk)
+                md_parts.append(f"--- 选中内容 {i+1} ---\n{element_md}")
+            focused_content_md = "\n".join(md_parts)
+        
+        elif req.source_element_html:
+            focused_content_md = h.handle(req.source_element_html)
+        
+        # 【新增打印】在这里打印转换后的Markdown内容
+        if focused_content_md:
+            print("\n" + "+-"*28 + "+")
+            print("|| CONVERTED MARKDOWN FROM SELECTED ELEMENTS SENT TO MODEL: ||")
+            print("+-"*28 + "+")
+            print(focused_content_md)
+            print("+-"*28 + "+\n")
+
         server_history = []
         
         context_prompt_parts = [
             "你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。",
-            "我会给你提供[全文Markdown内容]作为主要背景，可能还会提供一段用户当前聚焦的[聚焦内容]。",
-            "你的任务是：优先基于[聚焦内容]回答问题，并结合[全文Markdown内容]必要的上下文信息。如果问题需要推导或分析，分步骤展示推理过程。如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格。如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯。",
+            "我会给你提供[全文Markdown内容]作为主要背景，可能还会提供一段或多段用户当前聚焦的[聚焦内容]。",
+            "你的任务是：优先基于[聚焦内容]回答问题，并结合[全文Markdown内容]提供必要的上下文信息。如果问题涉及多个[聚焦内容]，请综合它们进行回答。如果问题需要推导或分析，请分步骤展示推理过程。",
             "---",
             "[全文Markdown内容]",
             full_doc_md
         ]
 
-        if req.source_element_html:
-            h = html2text.HTML2Text()
-            h.ignore_links = True
-            element_md = h.handle(req.source_element_html)
+        if focused_content_md:
             context_prompt_parts.extend([
-                "\n[聚焦内容]",
-                element_md
+                "\n---",
+                "[聚焦内容]",
+                focused_content_md
             ])
         
-        # 【修复】将 part 从字符串改为字典 {'text': ...}
         full_context_string = "\n".join(context_prompt_parts)
         server_history.append({'role': 'user', 'parts': [{'text': full_context_string}]})
         server_history.append({'role': 'model', 'parts': [{'text': "好的，上下文已收到。请开始提问。"}]})
 
         for msg in req.messages:
             role = 'model' if msg.role == 'assistant' else 'user'
-            # 【修复】将 part 从字符串改为字典 {'text': ...}
             server_history.append({'role': role, 'parts': [{'text': msg.text}]})
         
         last_user_message_for_model = server_history.pop()
@@ -354,46 +375,33 @@ def chat(req: ChatRequest):
             history=server_history
         )
 
-        # 【修复】从字典中提取文本内容发送
         prompt = last_user_message_for_model['parts'][0]['text']
-
-        # ==== 新增：打印完整输入 ====
-        import json
-
+        
         print("\n" + "="*50)
         print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
-
-        # 打印 history
-        print(">>> HISTORY >>>")
+        print(">>> CONVERSATION HISTORY (for model context):")
         print(json.dumps(server_history, ensure_ascii=False, indent=2))
-
-        # 打印本次用户消息
-        print(">>> LAST USER MESSAGE >>>")
+        print("\n>>> CURRENT USER PROMPT:")
         print(prompt)
-
         print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
         print("="*50 + "\n")
-        # ==== 新增结束 ====
+
         response = chat_session.send_message(prompt)
 
-        # ==== 新增：打印 AI 完整返回 ====
-        import json
+        response_dict = {}
         try:
-            response_dict = response.to_dict()
+            response_dict = type(response).to_dict(response)
         except Exception:
             try:
                 response_dict = json.loads(str(response))
             except Exception:
-                response_dict = {"raw": str(response)}
+                response_dict = {"raw_string_representation": str(response)}
 
         print("\n" + "="*50)
-        print("====== V V V ====== GEMINI API FULL JSON ====== V V V ======")
+        print("====== V V V ====== GEMINI API FULL RESPONSE ====== V V V ======")
         print(json.dumps(response_dict, ensure_ascii=False, indent=2))
-        print("====== ^ ^ ^ ====== END OF FULL JSON ====== ^ ^ ^ ======")
+        print("====== ^ ^ ^ ====== END OF FULL RESPONSE ====== ^ ^ ^ ======")
         print("="*50 + "\n")
-
-
-        # ==== 新增结束 ====
 
         ai_response_text = response.text
 

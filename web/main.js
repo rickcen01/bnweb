@@ -21,7 +21,6 @@ const API = {
   }).then(r => r.json()),
   deleteNode: async (docId, nodeId) => fetch(`/api/nodes/${encodeURIComponent(docId)}/${encodeURIComponent(nodeId)}`, { method: 'DELETE' }).then(r => r.json()),
   chat: async (payload) => fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json()),
-  // 【新增】对话历史相关API
   listChats: async (docId) => fetch(`/api/chats/${encodeURIComponent(docId)}`).then(r => r.json()),
   saveChat: async (docId, chat) => fetch(`/api/chats/${encodeURIComponent(docId)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chat)
@@ -35,14 +34,13 @@ const state = {
   documentId: null,
   nodes: [],
   elementIdCounter: 0,
-  // 【修改】管理侧边栏状态
+  selectedElements: [],
   sidebarContext: {
-    mode: 'document', // 'document' 或 'element'
+    mode: 'document',
     conversation: [],
     sourceElement: null,
-    sourceNodeId: null, // <-- 【新增】记录对话来源的节点ID
+    sourceNodeId: null,
   },
-  // 【新增】管理侧边栏对话历史
   chats: [],
   activeChatId: null,
 };
@@ -67,10 +65,11 @@ const els = {
   resetSidebarBtn: document.getElementById('resetSidebarBtn'),
   sidebarChatInstance: document.getElementById('sidebarChatInstance'),
   sidebarMessages: document.querySelector('#sidebarChatInstance .messages'),
-  sidebarInput: document.querySelector('#sidebarChatInstance .input input'),
+  sidebarInputWrapper: document.getElementById('sidebarInputWrapper'),
+  sidebarSelectedElements: document.getElementById('sidebarSelectedElements'),
+  sidebarInput: document.querySelector('#sidebarInputWrapper input'),
   sidebarSendBtn: document.querySelector('#sidebarChatInstance .send'),
   sidebarDiscardBtn: document.querySelector('#sidebarChatInstance .discard'),
-  // 【新增】侧边栏UI元素的引用
   sidebarChatSelector: document.getElementById('sidebarChatSelector'),
   chatHistorySelect: document.getElementById('chatHistorySelect'),
   newChatBtn: document.getElementById('newChatBtn'),
@@ -86,7 +85,7 @@ function initPanZoom() {
   let isPanning = false;
   let last = { x: 0, y: 0 };
   els.canvasWrapper.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer || e.target.classList.contains('resizer-handle')) return; // 忽略聊天框、节点和缩放手柄上的拖拽
+    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer || e.target.classList.contains('resizer-handle')) return;
     isPanning = true; last = { x: e.clientX, y: e.clientY };
   });
   window.addEventListener('mousemove', (e) => {
@@ -108,8 +107,68 @@ function initPanZoom() {
   }, { passive: false });
 }
 
+function toggleElementSelection(element) {
+  const atomId = element.dataset.atomId;
+  const index = state.selectedElements.findIndex(item => item.id === atomId);
+
+  if (index > -1) {
+    state.selectedElements.splice(index, 1);
+    element.classList.remove('selected');
+  } else {
+    state.selectedElements.push({ id: atomId, html: element.dataset.originalHtml });
+    element.classList.add('selected');
+  }
+  updateSelectedElementsUI();
+}
+
+function addElementSelectionById(atomId) {
+  if (state.selectedElements.some(item => item.id === atomId)) return;
+  const element = els.docHtml.querySelector(`[data-atom-id="${atomId}"]`);
+  if (element) {
+    state.selectedElements.push({ id: atomId, html: element.dataset.originalHtml });
+    element.classList.add('selected');
+    updateSelectedElementsUI();
+  }
+}
+
+function updateSelectedElementsUI() {
+  els.sidebarSelectedElements.innerHTML = '';
+  els.sidebarInput.placeholder = state.selectedElements.length > 0
+    ? '可继续输入问题，或继续选择...'
+    : '拖拽或Ctrl+点击元素以选中...';
+
+  state.selectedElements.forEach(item => {
+    const pill = document.createElement('div');
+    pill.className = 'selected-element-pill';
+    pill.textContent = `@${item.id}`;
+    
+    const removeBtn = document.createElement('span');
+    removeBtn.className = 'remove-pill';
+    removeBtn.textContent = '×';
+    removeBtn.title = '取消选择';
+    removeBtn.onclick = (e) => {
+      e.stopPropagation();
+      const element = els.docHtml.querySelector(`[data-atom-id="${item.id}"]`);
+      if (element) toggleElementSelection(element);
+    };
+    
+    pill.appendChild(removeBtn);
+    els.sidebarSelectedElements.appendChild(pill);
+  });
+}
+
+function clearElementSelection() {
+  state.selectedElements.forEach(item => {
+    const element = els.docHtml.querySelector(`[data-atom-id="${item.id}"]`);
+    if (element) element.classList.remove('selected');
+  });
+  state.selectedElements = [];
+  updateSelectedElementsUI();
+}
+
 function annotateAtoms() {
   state.elementIdCounter = 0;
+  clearElementSelection();
   const selector = 'p, img, table, thead, tbody, tr, pre, h1, h2, h3, h4, h5, h6, li, blockquote, code, figure, figcaption, math, svg';
   const nodes = els.docHtml.querySelectorAll(selector);
   nodes.forEach((n) => {
@@ -117,6 +176,8 @@ function annotateAtoms() {
     const id = `atom-${++state.elementIdCounter}`;
     n.dataset.atomId = id;
     n.dataset.originalHtml = n.outerHTML;
+    n.setAttribute('draggable', 'true');
+
     const ask = document.createElement('div');
     ask.className = 'ask';
     ask.textContent = '?';
@@ -126,6 +187,18 @@ function annotateAtoms() {
     ask.addEventListener('click', (e) => {
       e.stopPropagation();
       openMicroChat(n);
+    });
+
+    n.addEventListener('click', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleElementSelection(n);
+      }
+    });
+    n.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', n.dataset.atomId);
+      e.dataTransfer.effectAllowed = 'copy';
     });
   });
 }
@@ -200,28 +273,40 @@ function closeAllMicroChats() {
   document.querySelectorAll('.micro-chat:not(.sidebar)').forEach(e => e.remove());
 }
 
+// 【修改】此函数是解决公式渲染问题的关键
 async function renderMessages(container, messages) {
+  // 1. 清空并重新填充所有消息
   container.innerHTML = '';
   for (const m of messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
+    
     if (m.role === 'assistant' && window.marked) {
+      // 先用marked库将Markdown转为HTML
       div.innerHTML = marked.parse(m.text, { breaks: true });
     } else {
+      // 用户消息直接显示文本
       div.textContent = m.text;
     }
     container.appendChild(div);
   }
   
+  // 2. 【关键】在所有HTML内容都插入到页面后，再调用MathJax来渲染整个消息容器
+  // 这样可以确保MathJax能找到并正确处理所有由marked生成的、包含公式代码的HTML元素
   if (window.MathJax && window.MathJax.typesetPromise) {
-    try { await window.MathJax.typesetPromise([container]); } catch (err) { console.error("MathJax typesetting error:", err); }
+    try {
+      await window.MathJax.typesetPromise([container]);
+    } catch (err) {
+      console.error("MathJax typesetting error:", err);
+    }
   }
   
+  // 3. 滚动到底部
   container.scrollTop = container.scrollHeight;
 }
 
+
 async function saveConversationAsNode(atomEl, conversation) {
-  // 需求 #3: 默认将节点的中心圆点定位在目标元素高亮区域的左上角
   const nodeWidth = 28;
   const nodeHeight = 28;
   const node = {
@@ -235,7 +320,7 @@ async function saveConversationAsNode(atomEl, conversation) {
     },
     conversation_log: conversation,
     user_annotations: null,
-    source_element_html: atomEl.dataset.originalHtml, // 【修改】保存HTML
+    source_element_html: atomEl.dataset.originalHtml,
   };
   try {
     await API.saveNode(state.documentId, node);
@@ -320,7 +405,6 @@ function redrawWires() {
   });
 }
 
-// 【修改】重构节点对话功能，使其支持续聊
 function openNodeConversation(node) {
   closeAllMicroChats();
   const tpl = els.microChatTemplate.content.cloneNode(true);
@@ -329,8 +413,7 @@ function openNodeConversation(node) {
   if (!nodeEl) return;
   box.dataset.nodeIdRef = node.node_id;
 
-  // 需求 #2: 使对话框的右边框与知识节点贴着（出现在节点左侧）
-  const initialChatBoxWidth = 320; // 与CSS中的width保持一致
+  const initialChatBoxWidth = 320;
   const gap = 16;
   let left = parseFloat(nodeEl.style.left) - initialChatBoxWidth - gap;
   let top = parseFloat(nodeEl.style.top);
@@ -359,7 +442,7 @@ function openNodeConversation(node) {
       try {
           const res = await API.chat(payload);
           node.conversation_log.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
-          await API.saveNode(state.documentId, node); // 保存更新后的对话
+          await API.saveNode(state.documentId, node);
           await renderMessages(messagesEl, node.conversation_log);
       } catch (err) {
           node.conversation_log.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
@@ -371,7 +454,7 @@ function openNodeConversation(node) {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
 
   const saveBtn = box.querySelector('.save');
-  saveBtn.textContent = '收起'; // 修改按钮文字
+  saveBtn.textContent = '收起';
   saveBtn.addEventListener('click', () => box.remove());
   
   box.querySelector('.expand').addEventListener('click', () => {
@@ -395,8 +478,8 @@ function openNodeConversation(node) {
   els.canvas.appendChild(box);
 }
 
-// 【修改】此函数现在用于将对话加载到侧边栏，并切换其模式
 async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
+  clearElementSelection();
   state.sidebarContext = {
     mode: 'element',
     conversation: [...conversation],
@@ -407,8 +490,8 @@ async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
   els.sidebarTitle.textContent = 'AI 对话 (聚焦内容)';
   els.sidebarInput.placeholder = '就选中内容继续提问...';
   els.resetSidebarBtn.classList.remove('hidden');
-  els.sidebarChatSelector.classList.add('hidden'); // 隐藏历史选择
-  els.saveNodeFromSidebarBtn.classList.remove('hidden'); // 显示创建节点按钮
+  els.sidebarChatSelector.classList.add('hidden');
+  els.saveNodeFromSidebarBtn.classList.remove('hidden');
   
   await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
   
@@ -427,7 +510,7 @@ async function loadDocument(id) {
     try { await window.MathJax.typesetPromise([els.docHtml]); } catch {}
   }
   await loadNodes(id);
-  await loadChats(id); // 【新增】加载对话历史
+  await loadChats(id);
 }
 
 async function loadNodes(id) {
@@ -478,25 +561,24 @@ function initUI() {
 }
 
 async function resetSidebarToDocumentMode() {
+    clearElementSelection();
     state.sidebarContext = {
         mode: 'document',
         conversation: [],
         sourceElement: null,
-        sourceNodeId: null // <-- 【新增】重置时清除
+        sourceNodeId: null
     };
     els.sidebarTitle.textContent = 'AI 对话 (全文)';
-    els.sidebarInput.placeholder = '就整篇文档提问...';
+    els.sidebarInput.placeholder = '拖拽或Ctrl+点击元素以选中...';
     els.resetSidebarBtn.classList.add('hidden');
-    els.sidebarChatSelector.classList.remove('hidden'); // 显示历史选择
-    els.saveNodeFromSidebarBtn.classList.add('hidden'); // 隐藏创建节点按钮
+    els.sidebarChatSelector.classList.remove('hidden');
+    els.saveNodeFromSidebarBtn.classList.add('hidden');
     
-    // 恢复到当前激活的全局对话
     const activeChat = state.chats.find(c => c.id === state.activeChatId);
     state.sidebarContext.conversation = activeChat ? activeChat.messages : [];
     await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 }
 
-// 【新增】系列函数用于管理侧边栏对话历史
 async function loadChats(docId) {
     try {
         state.chats = await API.listChats(docId);
@@ -548,31 +630,40 @@ async function createNewChat() {
     await setActiveChat(newChat.id);
 }
 
-// 【修改】初始化侧边栏的永久对话功能
 function initSidebarChat() {
     const send = async () => {
         const text = els.sidebarInput.value.trim();
-        if (!text) return;
+        if (!text && state.selectedElements.length === 0) return;
         
         els.sidebarInput.value = '';
-        state.sidebarContext.conversation.push({ role: 'user', text, timestamp: Date.now() });
+
+        let userMessageText = text;
+        if (state.selectedElements.length > 0) {
+            const elementTags = state.selectedElements.map(el => `@${el.id}`).join(' ');
+            userMessageText = `${elementTags} ${text}`.trim();
+        }
+        
+        state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
         await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
         const payload = {
             document_id: state.documentId,
             messages: state.sidebarContext.conversation,
         };
-
-        if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
+        
+        if (state.selectedElements.length > 0) {
+            payload.selected_elements_html = state.selectedElements.map(el => el.html);
+        } else if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
             payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
             payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
         }
+
+        clearElementSelection();
 
         try {
             const res = await API.chat(payload);
             state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
             
-            // 【修改】如果是在全局对话模式下，保存对话历史
             if (state.sidebarContext.mode === 'document') {
                 const activeChat = state.chats.find(c => c.id === state.activeChatId);
                 if (activeChat) {
@@ -606,41 +697,53 @@ function initSidebarChat() {
     });
 
     els.resetSidebarBtn.addEventListener('click', resetSidebarToDocumentMode);
-    
-    // 【新增】处理对话历史切换和新建
     els.chatHistorySelect.addEventListener('change', () => setActiveChat(els.chatHistorySelect.value));
     els.newChatBtn.addEventListener('click', createNewChat);
-
-    // 【新增】处理从侧边栏创建节点
     els.saveNodeFromSidebarBtn.addEventListener('click', async () => {
-        if (state.sidebarContext.mode !== 'element' || !state.sidebarContext.sourceElement) {
-            return;
-        }
+        if (state.sidebarContext.mode !== 'element' || !state.sidebarContext.sourceElement) return;
 
         const { sourceElement, conversation, sourceNodeId } = state.sidebarContext;
-
         if (sourceNodeId) {
-            // 情况一：来源是现有节点，更新它
             const nodeToUpdate = state.nodes.find(n => n.node_id === sourceNodeId);
             if (nodeToUpdate) {
-                nodeToUpdate.conversation_log = conversation; // 更新对话历史
+                nodeToUpdate.conversation_log = conversation;
                 try {
                     await API.saveNode(state.documentId, nodeToUpdate);
                 } catch(e) {
                     console.error("更新节点失败:", e);
-                    // 可以在这里添加本地存储的后备逻辑
                 }
-            } else {
-                console.error("要更新的节点未找到:", sourceNodeId);
             }
         } else {
-            // 情况二：来源是新元素，创建新节点
             const node = await saveConversationAsNode(sourceElement, conversation);
             addNodeToCanvas(node);
         }
-        
-        // 操作完成后，重置侧边栏回到全局对话模式
         await resetSidebarToDocumentMode();
+    });
+}
+
+function initSidebarDropZone() {
+    const dropZone = els.sidebarInputWrapper;
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#007bff';
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.style.borderColor = '';
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '';
+        const atomId = e.dataTransfer.getData('text/plain');
+        if (atomId) {
+            addElementSelectionById(atomId);
+        }
+    });
+
+    dropZone.addEventListener('click', () => {
+        els.sidebarInput.focus();
     });
 }
 
@@ -694,6 +797,7 @@ function boot() {
   initUI();
   initSidebar();
   initSidebarChat();
+  initSidebarDropZone();
   
   const wrapper = els.canvasWrapper.getBoundingClientRect();
   state.panX = (wrapper.width - 920) / 2;
