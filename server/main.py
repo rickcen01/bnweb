@@ -34,10 +34,12 @@ except Exception:
 DATA_DIR = os.path.join(ROOT_DIR, 'data')
 DOCS_DIR = os.path.join(DATA_DIR, 'documents')
 NODES_DIR = os.path.join(DATA_DIR, 'nodes')
+CHATS_DIR = os.path.join(DATA_DIR, 'chats') # 【新增】对话历史存储目录
 WEB_DIR = os.path.join(ROOT_DIR, 'web')
 
 os.makedirs(DOCS_DIR, exist_ok=True)
 os.makedirs(NODES_DIR, exist_ok=True)
+os.makedirs(CHATS_DIR, exist_ok=True) # 【新增】创建目录
 
 
 class Message(BaseModel):
@@ -59,6 +61,14 @@ class KnowledgeNode(BaseModel):
     canvas_position: CanvasPosition
     conversation_log: List[Message]
     user_annotations: Optional[str] = None
+    source_element_html: Optional[str] = None # 【新增】保存原始HTML
+
+
+# 【新增】侧边栏对话历史的数据模型
+class ChatSession(BaseModel):
+    id: str
+    name: str
+    messages: List[Message]
 
 
 app = FastAPI(title="nbweb backend")
@@ -234,6 +244,48 @@ def delete_node(document_id: str, node_id: str):
     _write_nodes(document_id, nodes)
     return {"status": "ok"}
 
+# 【新增】读写侧边栏对话历史的辅助函数
+def _chats_path(document_id: str) -> str:
+    return os.path.join(CHATS_DIR, f"{document_id}.json")
+
+def _read_chats(document_id: str) -> List[Dict[str, Any]]:
+    path = _chats_path(document_id)
+    if not os.path.exists(path): return []
+    with open(path, 'r', encoding='utf-8') as f:
+        try: return json.load(f)
+        except Exception: return []
+
+def _write_chats(document_id: str, chats: List[Dict[str, Any]]):
+    path = _chats_path(document_id)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(chats, f, ensure_ascii=False, indent=2)
+
+# 【新增】获取对话历史列表的API
+@app.get("/api/chats/{document_id}", response_model=List[ChatSession])
+def list_chats(document_id: str):
+    return _read_chats(document_id)
+
+# 【新增】保存（新建或更新）一个对话历史的API
+@app.post("/api/chats/{document_id}")
+def save_chat(document_id: str, chat: ChatSession):
+    chats = _read_chats(document_id)
+    found = False
+    for i, c in enumerate(chats):
+        if c.get('id') == chat.id:
+            chats[i] = chat.model_dump(); found = True; break
+    if not found:
+        chats.append(chat.model_dump())
+    _write_chats(document_id, chats)
+    return {"status": "ok", "id": chat.id}
+
+# 【新增】删除一个对话历史的API
+@app.delete("/api/chats/{document_id}/{chat_id}")
+def delete_chat(document_id: str, chat_id: str):
+    chats = _read_chats(document_id)
+    chats = [c for c in chats if c.get('id') != chat_id]
+    _write_chats(document_id, chats)
+    return {"status": "ok"}
+
 
 class ChatRequest(BaseModel):
     document_id: str
@@ -333,7 +385,7 @@ def chat(req: ChatRequest):
 
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash", # 使用较新模型
             contents=prompt,
         )
         ai_response_text = response.text

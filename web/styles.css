@@ -25,19 +25,42 @@ label.upload input { display: none; }
     display: none;
 }
 .sidebar-header { 
-    padding: 12px 16px; 
+    padding: 12px; 
     font-weight: 600; 
     border-bottom: 1px solid #e0e0e0; 
     background-color: #fff;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
-/* 【新增】返回按钮样式 */
+
+/* 【新增】对话历史选择器样式 */
+#sidebarTitle { flex-shrink: 0; }
+#sidebarChatSelector { display: flex; align-items: center; gap: 4px; overflow: hidden; flex: 1; }
+#sidebarChatSelector.hidden { display: none; }
+#chatHistorySelect {
+    max-width: 150px;
+    flex: 1;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    padding: 2px 4px;
+    font-size: 13px;
+    background-color: #fff;
+}
+#newChatBtn {
+    padding: 2px 8px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    background-color: #f0f0f0;
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
 #resetSidebarBtn {
     margin-right: auto;
-    margin-left: 8px;
     padding: 2px 8px;
     font-size: 12px;
     border: 1px solid #ccc;
@@ -60,7 +83,7 @@ label.upload input { display: none; }
 }
 .sidebar-close-btn:hover { color: #333; }
 
-#sidebarContent { flex: 1; overflow: hidden; /* 防止内容溢出 */ }
+#sidebarContent { flex: 1; overflow: hidden; }
 
 #sidebarResizer {
     width: 5px;
@@ -111,7 +134,7 @@ label.upload input { display: none; }
 .micro-chat.sidebar { 
     position: static; 
     width: auto; 
-    height: 100%; /* 【修改】确保填满sidebarContent */
+    height: 100%;
     margin: 0;
     box-shadow: none;
     border: none;
@@ -133,7 +156,7 @@ label.upload input { display: none; }
     padding: 8px 12px;
     border-radius: 12px;
     line-height: 1.6;
-    word-break: break-word; /* 防止长单词溢出 */
+    word-break: break-word;
 }
 .micro-chat .messages .m.user { 
     background: #007bff;
@@ -160,6 +183,10 @@ label.upload input { display: none; }
 .micro-chat .input input:focus { border-color: #007bff; }
 .micro-chat .input button { padding: 8px 16px; border-radius: 18px; border: none; background: #007bff; color: white; cursor: pointer; }
 .micro-chat .actions { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #f0f0f0; }
+
+/* 【新增】确保 "创建知识节点" 按钮默认隐藏 */
+.micro-chat .save-node.hidden { display: none; }
+
 .micro-chat.sidebar .expand { display: none; }
 .micro-chat .actions button { flex: 1; padding: 6px 8px; border: 1px solid #ececec; background: #fafafa; border-radius: 6px; cursor: pointer; }
 .micro-chat .actions button:hover { background: #f0f0f0; border-color: #ddd; }

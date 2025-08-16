@@ -47,11 +47,16 @@
       
       <div id="sidebar" class="hidden">
         <div class="sidebar-header">
-          <span id="sidebarTitle">AI 对话 (全文)</span>
+          <span id="sidebarTitle">AI 对话</span>
+          <!-- 【新增】对话历史选择器 -->
+          <div id="sidebarChatSelector">
+            <select id="chatHistorySelect"></select>
+            <button id="newChatBtn" title="新建聊天">+</button>
+          </div>
           <button id="resetSidebarBtn" class="hidden" title="返回全文对话模式">返回</button>
           <button id="collapseSidebarBtn" class="sidebar-close-btn" title="收起侧边栏">&times;</button>
         </div>
-        <!-- 【新增】默认的、永久的聊天界面 -->
+        
         <div id="sidebarContent">
             <div class="micro-chat sidebar" id="sidebarChatInstance">
                 <div class="messages"></div>
@@ -60,6 +65,8 @@
                     <button class="send">发送</button>
                 </div>
                 <div class="actions">
+                    <!-- 【新增】从侧边栏创建知识节点按钮 -->
+                    <button class="save-node hidden">创建知识节点</button>
                     <button class="discard">清空对话</button>
                 </div>
             </div>
