@@ -86,7 +86,7 @@ function initPanZoom() {
   let isPanning = false;
   let last = { x: 0, y: 0 };
   els.canvasWrapper.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer) return;
+    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer || e.target.classList.contains('resizer-handle')) return; // 忽略聊天框、节点和缩放手柄上的拖拽
     isPanning = true; last = { x: e.clientX, y: e.clientY };
   });
   window.addEventListener('mousemove', (e) => {
@@ -221,13 +221,16 @@ async function renderMessages(container, messages) {
 }
 
 async function saveConversationAsNode(atomEl, conversation) {
+  // 需求 #3: 默认将节点的中心圆点定位在目标元素高亮区域的左上角
+  const nodeWidth = 28;
+  const nodeHeight = 28;
   const node = {
     node_id: crypto.randomUUID(),
     document_id: state.documentId,
     source_element_id: atomEl.dataset.atomId,
     canvas_position: {
-      x: (atomEl.getBoundingClientRect().right - els.canvas.getBoundingClientRect().left) / state.zoom + 30,
-      y: (atomEl.getBoundingClientRect().top - els.canvas.getBoundingClientRect().top) / state.zoom,
+      x: (atomEl.getBoundingClientRect().left - els.canvas.getBoundingClientRect().left) / state.zoom - (nodeWidth / 2),
+      y: (atomEl.getBoundingClientRect().top - els.canvas.getBoundingClientRect().top) / state.zoom - (nodeHeight / 2),
       zoom_level: state.zoom
     },
     conversation_log: conversation,
@@ -326,9 +329,10 @@ function openNodeConversation(node) {
   if (!nodeEl) return;
   box.dataset.nodeIdRef = node.node_id;
 
-  const chatBoxWidth = 320;
+  // 需求 #2: 使对话框的右边框与知识节点贴着（出现在节点左侧）
+  const initialChatBoxWidth = 320; // 与CSS中的width保持一致
   const gap = 16;
-  let left = parseFloat(nodeEl.style.left) + nodeEl.offsetWidth + gap;
+  let left = parseFloat(nodeEl.style.left) - initialChatBoxWidth - gap;
   let top = parseFloat(nodeEl.style.top);
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
