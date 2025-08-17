@@ -144,6 +144,7 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
     if to_markdown is None:
         raise HTTPException(500, detail="MinerU not available in server environment")
 
+    archive_zip_path = None
     try:
         md_content_b64, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
             tmp_pdf_path, end_pages=max_pages, is_ocr=False, formula_enable=True,
@@ -157,11 +158,9 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
 
     base_filename = f"{Path(file.filename).stem}_{int(time.time())}"
     html_document_id = f"{base_filename}.html"
-
-    html_for_frontend = markdown2.markdown(md_content_b64, extras=["fenced-code-blocks", "tables"])
-    html_out_path = os.path.join(DOCS_DIR, html_document_id)
-    with open(html_out_path, 'w', encoding='utf-8') as f:
-        f.write(html_for_frontend)
+    target_assets_dirname = f"{base_filename}_assets"
+    
+    found_media_dir_name = None
 
     if archive_zip_path and os.path.exists(archive_zip_path):
         with tempfile.TemporaryDirectory() as temp_extract_dir:
@@ -169,31 +168,62 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                 zip_ref.extractall(temp_extract_dir)
 
             source_md_path = None
-            source_assets_path = None
+            # 查找解压后的.md文件
             for root, dirs, files in os.walk(temp_extract_dir):
                 for f in files:
                     if f.endswith('.md'):
                         source_md_path = os.path.join(root, f)
-                if 'assets' in dirs:
-                    source_assets_path = os.path.join(root, 'assets')
+                        break
+                if source_md_path:
+                    break
             
             if source_md_path:
-                md_for_ai_filename = f"{base_filename}.md"
-                target_assets_dirname = f"{base_filename}_assets"
+                md_dir = os.path.dirname(source_md_path)
+                source_media_path = None
                 
+                # 检查是否存在 'images' 或 'assets' 文件夹
+                potential_images_path = os.path.join(md_dir, 'images')
+                potential_assets_path = os.path.join(md_dir, 'assets')
+
+                if os.path.isdir(potential_images_path):
+                    source_media_path = potential_images_path
+                    found_media_dir_name = 'images'
+                elif os.path.isdir(potential_assets_path):
+                    source_media_path = potential_assets_path
+                    found_media_dir_name = 'assets'
+
+                # 1. 处理供AI使用的纯Markdown文件
                 with open(source_md_path, 'r', encoding='utf-8') as f:
                     clean_md_content = f.read()
 
-                updated_md_content = clean_md_content.replace("](assets/", f"]({target_assets_dirname}/")
+                updated_md_content = clean_md_content
+                if found_media_dir_name:
+                    # 更新MD文件中的图片路径为相对路径
+                    updated_md_content = clean_md_content.replace(f"]({found_media_dir_name}/", f"]({target_assets_dirname}/")
 
+                md_for_ai_filename = f"{base_filename}.md"
                 md_for_ai_out_path = os.path.join(DOCS_DIR, md_for_ai_filename)
                 with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
                     f.write(updated_md_content)
 
-                if source_assets_path and os.path.isdir(source_assets_path):
+                # 2. 移动图片文件夹到目标位置
+                if source_media_path:
                     target_assets_path = os.path.join(DOCS_DIR, target_assets_dirname)
-                    shutil.move(source_assets_path, target_assets_path)
+                    shutil.move(source_media_path, target_assets_path)
     
+    # 3. 处理供前端展示的HTML文件
+    md_content_for_html = md_content_b64
+    if found_media_dir_name:
+        # 更新HTML中的图片路径为Web可访问的URL
+        web_accessible_path = f"/api/documents_assets/{target_assets_dirname}/"
+        md_content_for_html = md_content_b64.replace(f"]({found_media_dir_name}/", f"]({web_accessible_path}")
+
+    html_for_frontend = markdown2.markdown(md_content_for_html, extras=["fenced-code-blocks", "tables"])
+    html_out_path = os.path.join(DOCS_DIR, html_document_id)
+    with open(html_out_path, 'w', encoding='utf-8') as f:
+        f.write(html_for_frontend)
+    
+    # 清理ZIP压缩包
     if archive_zip_path and os.path.exists(archive_zip_path):
         os.remove(archive_zip_path)
 
