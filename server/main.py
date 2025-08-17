@@ -216,9 +216,33 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                     shutil.move(source_media_path, target_images_path)
 
     if found_media_dir_name:
-        # 【结构修改】将HTML引用的路径替换为服务器可访问的绝对URL路径
         web_accessible_path = f"/api/documents_assets/{doc_foldername}/images/"
-        md_content_for_html = md_content_for_html.replace(f"]({found_media_dir_name}/", f"]({web_accessible_path}")
+        
+        # --- 修正后的替换逻辑 开始 ---
+        
+        print("\n" + "="*50)
+        print(">>> [调试信息] 准备进行路径替换...")
+        print(f"    - 发现的媒体文件夹名: {found_media_dir_name}")
+        print(f"    - 目标Web访问路径: {web_accessible_path}")
+
+        # 新的查找字符串，针对 HTML 的 src 属性
+        search_string = f'src="{found_media_dir_name}/'
+        # 新的替换字符串
+        replace_string = f'src="{web_accessible_path}'
+        
+        print(f"\n    - 正在查找 (HTML模式): '{search_string}'")
+        print(f"    - 准备替换为: '{replace_string}'")
+
+        original_content = md_content_for_html
+        md_content_for_html = md_content_for_html.replace(search_string, replace_string)
+
+        if original_content == md_content_for_html:
+            print("\n    >>> [警告] 替换操作未改变任何内容！请检查Markdown内容中的图片格式。")
+        else:
+            print("\n    >>> [成功] 路径替换已执行！")
+
+        print("="*50 + "\n")
+        # --- 修正后的替换逻辑 结束 ---
 
     html_for_frontend = markdown2.markdown(md_content_for_html, extras=["fenced-code-blocks", "tables"])
     html_out_path = os.path.join(doc_dir, html_filename)
