@@ -94,26 +94,29 @@ def index():
 
 
 app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+# 【结构修改】静态文件服务现在直接指向DOCS_DIR，以支持子文件夹访问
 app.mount("/api/documents_assets", StaticFiles(directory=DOCS_DIR), name="documents_assets")
 
 
 @app.get("/api/documents")
 def list_documents() -> List[Dict[str, Any]]:
     docs = []
+    # 【结构修改】现在遍历documents目录下的子文件夹作为每个文档的标识
     for fname in os.listdir(DOCS_DIR):
-        if not fname.lower().endswith(('.html', '.htm')):
-            continue
         path = os.path.join(DOCS_DIR, fname)
-        docs.append({
-            'document_id': fname,
-            'title': os.path.splitext(fname)[0],
-        })
+        if os.path.isdir(path):
+            docs.append({
+                'document_id': fname, # document_id 现在是文件夹名
+                'title': fname,
+            })
     return docs
 
 
 @app.get("/api/document/{document_id}", response_class=HTMLResponse)
 def get_document(document_id: str):
-    path = os.path.join(DOCS_DIR, document_id)
+    # 【结构修改】HTML文件路径现在是 {document_id}/{document_id}.html
+    html_filename = f"{document_id}.html"
+    path = os.path.join(DOCS_DIR, document_id, html_filename)
     if not os.path.isfile(path):
         raise HTTPException(404, detail="Document not found")
     with open(path, 'r', encoding='utf-8') as f:
@@ -124,6 +127,7 @@ def get_document(document_id: str):
 def upload_document(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(('.html', '.htm')):
         raise HTTPException(400, detail="Only HTML documents are supported")
+    # 为了兼容性，普通HTML上传仍然放在根目录，不创建子文件夹
     dest = os.path.join(DOCS_DIR, file.filename)
     with open(dest, 'wb') as f:
         f.write(file.file.read())
@@ -146,7 +150,7 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
 
     archive_zip_path = None
     try:
-        md_content_b64, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
+        md_content_from_mineru, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
             tmp_pdf_path, end_pages=max_pages, is_ocr=False, formula_enable=True,
             table_enable=True, language=language, backend=backend, url=None,
         )
@@ -156,10 +160,15 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
         if os.path.exists(tmp_pdf_path):
             os.remove(tmp_pdf_path)
 
-    base_filename = f"{Path(file.filename).stem}_{int(time.time())}"
-    html_document_id = f"{base_filename}.html"
-    target_assets_dirname = f"{base_filename}_assets"
+    # 【结构修改】这个名字现在是文档的父文件夹名，也是document_id
+    doc_foldername = f"{Path(file.filename).stem}_{int(time.time())}"
+    doc_dir = os.path.join(DOCS_DIR, doc_foldername)
+    os.makedirs(doc_dir)
+
+    html_filename = f"{doc_foldername}.html"
+    md_filename = f"{doc_foldername}.md"
     
+    md_content_for_html = md_content_from_mineru
     found_media_dir_name = None
 
     if archive_zip_path and os.path.exists(archive_zip_path):
@@ -168,7 +177,6 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                 zip_ref.extractall(temp_extract_dir)
 
             source_md_path = None
-            # 查找解压后的.md文件
             for root, dirs, files in os.walk(temp_extract_dir):
                 for f in files:
                     if f.endswith('.md'):
@@ -181,7 +189,6 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                 md_dir = os.path.dirname(source_md_path)
                 source_media_path = None
                 
-                # 检查是否存在 'images' 或 'assets' 文件夹
                 potential_images_path = os.path.join(md_dir, 'images')
                 potential_assets_path = os.path.join(md_dir, 'assets')
 
@@ -191,46 +198,41 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                 elif os.path.isdir(potential_assets_path):
                     source_media_path = potential_assets_path
                     found_media_dir_name = 'assets'
-
-                # 1. 处理供AI使用的纯Markdown文件
-                with open(source_md_path, 'r', encoding='utf-8') as f:
-                    clean_md_content = f.read()
-
-                updated_md_content = clean_md_content
+                
                 if found_media_dir_name:
-                    # 更新MD文件中的图片路径为相对路径
-                    updated_md_content = clean_md_content.replace(f"]({found_media_dir_name}/", f"]({target_assets_dirname}/")
+                    with open(source_md_path, 'r', encoding='utf-8') as f:
+                        clean_md_content = f.read()
+                    
+                    md_content_for_html = clean_md_content
 
-                md_for_ai_filename = f"{base_filename}.md"
-                md_for_ai_out_path = os.path.join(DOCS_DIR, md_for_ai_filename)
-                with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
-                    f.write(updated_md_content)
+                    # 【结构修改】MD文件中的路径应该是相对于它自己的文件夹，所以就是 'images/...'
+                    # 无需替换，原始路径 'images/...' 就是正确的
+                    md_for_ai_out_path = os.path.join(doc_dir, md_filename)
+                    with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
+                        f.write(clean_md_content) # 直接写入纯净的MD内容
 
-                # 2. 移动图片文件夹到目标位置
-                if source_media_path:
-                    target_assets_path = os.path.join(DOCS_DIR, target_assets_dirname)
-                    shutil.move(source_media_path, target_assets_path)
-    
-    # 3. 处理供前端展示的HTML文件
-    md_content_for_html = md_content_b64
+                    # 【结构修改】将图片文件夹移动到新创建的文档专属文件夹下，并命名为 'images'
+                    target_images_path = os.path.join(doc_dir, 'images')
+                    shutil.move(source_media_path, target_images_path)
+
     if found_media_dir_name:
-        # 更新HTML中的图片路径为Web可访问的URL
-        web_accessible_path = f"/api/documents_assets/{target_assets_dirname}/"
-        md_content_for_html = md_content_b64.replace(f"]({found_media_dir_name}/", f"]({web_accessible_path}")
+        # 【结构修改】将HTML引用的路径替换为服务器可访问的绝对URL路径
+        web_accessible_path = f"/api/documents_assets/{doc_foldername}/images/"
+        md_content_for_html = md_content_for_html.replace(f"]({found_media_dir_name}/", f"]({web_accessible_path}")
 
     html_for_frontend = markdown2.markdown(md_content_for_html, extras=["fenced-code-blocks", "tables"])
-    html_out_path = os.path.join(DOCS_DIR, html_document_id)
+    html_out_path = os.path.join(doc_dir, html_filename)
     with open(html_out_path, 'w', encoding='utf-8') as f:
         f.write(html_for_frontend)
     
-    # 清理ZIP压缩包
     if archive_zip_path and os.path.exists(archive_zip_path):
         os.remove(archive_zip_path)
 
-    return {"status": "ok", "document_id": html_document_id}
+    return {"status": "ok", "document_id": doc_foldername}
 
 
 def _nodes_path(document_id: str) -> str:
+    # 节点和聊天记录的JSON文件仍然存储在独立的目录中，不受影响
     return os.path.join(NODES_DIR, f"{document_id}.json")
 
 
@@ -338,8 +340,9 @@ def chat(req: ChatRequest):
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        md_filename = Path(req.document_id).with_suffix('.md').name
-        md_filepath = os.path.join(DOCS_DIR, md_filename)
+        # 【结构修改】MD文件路径现在也基于document_id子文件夹
+        md_filename = f"{req.document_id}.md"
+        md_filepath = os.path.join(DOCS_DIR, req.document_id, md_filename)
         
         full_doc_md = ""
         if os.path.exists(md_filepath):
@@ -364,7 +367,6 @@ def chat(req: ChatRequest):
         elif req.source_element_html:
             focused_content_md = h.handle(req.source_element_html)
         
-        # 【新增打印】在这里打印转换后的Markdown内容
         if focused_content_md:
             print("\n" + "+-"*28 + "+")
             print("|| CONVERTED MARKDOWN FROM SELECTED ELEMENTS SENT TO MODEL: ||")
