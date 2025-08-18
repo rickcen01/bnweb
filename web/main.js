@@ -240,17 +240,25 @@ function openMicroChat(atomEl) {
     conversation.push({ role: 'user', text, timestamp: Date.now() });
     await renderMessages(messagesEl, conversation);
     
-    // 【修改】构建请求体，如果是图片则附带 image_url
     const payload = {
       document_id: state.documentId,
       source_element_id: atomEl.dataset.atomId,
       messages: conversation,
       source_element_html: atomEl.dataset.originalHtml,
     };
-    // 如果是图片元素，则添加其src
-    if (atomEl.tagName === 'IMG') {
-        payload.image_url = atomEl.src;
+    
+    // ================== [ THE FINAL FIX ] ==================
+    // 之前: 检查 atomEl 本身是不是 <img>
+    // 现在: 在 atomEl 内部查找 <img> 元素
+    const imageElement = atomEl.querySelector('img');
+    
+    // 如果找到了图片元素，就提取它的 src
+    if (imageElement) {
+        payload.image_url = imageElement.getAttribute('src');
     }
+    // =======================================================
+
+    console.log("[DEBUG] Sending from openMicroChat ('?' icon). Payload:", JSON.stringify(payload, null, 2));
 
     try {
       const res = await API.chat(payload);
@@ -645,114 +653,119 @@ async function createNewChat() {
 }
 
 function initSidebarChat() {
-    const send = async () => {
-        const text = els.sidebarInput.value.trim();
-        if (!text && state.selectedElements.length === 0) return;
-        
-        els.sidebarInput.value = '';
+  const send = async () => {
+      const text = els.sidebarInput.value.trim();
+      if (!text && state.selectedElements.length === 0) return;
+      
+      els.sidebarInput.value = '';
 
-        let userMessageText = text;
-        if (state.selectedElements.length > 0) {
-            const elementTags = state.selectedElements.map(el => `@${el.id}`).join(' ');
-            userMessageText = `${elementTags} ${text}`.trim();
-        }
-        
-        state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
-        await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      let userMessageText = text;
+      if (state.selectedElements.length > 0) {
+          const elementTags = state.selectedElements.map(el => `@${el.id}`).join(' ');
+          userMessageText = `${elementTags} ${text}`.trim();
+      }
+      
+      state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
+      await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
-        // 【修改】构建请求体，检查是否有选中的图片
-        const payload = {
-            document_id: state.documentId,
-            messages: state.sidebarContext.conversation,
-        };
-        
-        let imageUrl = null;
-        // 检查选中元素中是否有图片
-        if (state.selectedElements.length > 0) {
-            payload.selected_elements_html = state.selectedElements.map(el => el.html);
-            // 查找第一个图片元素并获取其src
-            for (const item of state.selectedElements) {
-                const match = item.html.match(/<img[^>]+src="([^"]+)"/);
-                if (match) {
-                    imageUrl = match[1];
-                    break;
-                }
-            }
-        } else if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
-            payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
-            payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
-            // 如果聚焦的元素是图片，获取其src
-            if (state.sidebarContext.sourceElement.tagName === 'IMG') {
-                imageUrl = state.sidebarContext.sourceElement.src;
-            }
-        }
-        
-        // 如果找到了图片URL，就添加到payload中
-        if (imageUrl) {
-            payload.image_url = imageUrl;
-        }
+      const payload = {
+          document_id: state.documentId,
+          messages: state.sidebarContext.conversation,
+      };
+      
+      let imageUrl = null;
+      if (state.selectedElements.length > 0) {
+          payload.selected_elements_html = state.selectedElements.map(el => el.html);
+          for (const item of state.selectedElements) {
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = item.html;
+              const img = tempDiv.querySelector('img');
+              if (img) {
+                  imageUrl = img.getAttribute('src');
+                  break;
+              }
+          }
+      } else if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
+          payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
+          payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
+          
+          // ================== [ THE FINAL FIX - PART 2 ] ==================
+          // 之前: 检查 sourceElement 本身是不是 <img>
+          // 现在: 在 sourceElement 内部查找 <img> 元素
+          const imageElement = state.sidebarContext.sourceElement.querySelector('img');
+          if (imageElement) {
+              imageUrl = imageElement.getAttribute('src');
+          }
+          // ================================================================
+      }
+      
+      if (imageUrl) {
+          payload.image_url = imageUrl;
+      }
 
-        clearElementSelection();
+      clearElementSelection();
 
-        try {
-            const res = await API.chat(payload);
-            state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
-            
-            if (state.sidebarContext.mode === 'document') {
-                const activeChat = state.chats.find(c => c.id === state.activeChatId);
-                if (activeChat) {
-                    activeChat.messages = state.sidebarContext.conversation;
-                    await API.saveChat(state.documentId, activeChat);
-                }
-            }
-            await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      console.log("[DEBUG] Sending from Sidebar. Payload:", JSON.stringify(payload, null, 2));
 
-        } catch (err) {
-            state.sidebarContext.conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
-            await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
-        }
-    };
+      try {
+          const res = await API.chat(payload);
+          state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
+          
+          if (state.sidebarContext.mode === 'document') {
+              const activeChat = state.chats.find(c => c.id === state.activeChatId);
+              if (activeChat) {
+                  activeChat.messages = state.sidebarContext.conversation;
+                  await API.saveChat(state.documentId, activeChat);
+              }
+          }
+          await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
-    els.sidebarSendBtn.addEventListener('click', send);
-    els.sidebarInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-    
-    els.sidebarDiscardBtn.addEventListener('click', async () => {
-        if (confirm('确定要清空当前对话吗？')) {
-            state.sidebarContext.conversation = [];
-            if (state.sidebarContext.mode === 'document') {
-                const activeChat = state.chats.find(c => c.id === state.activeChatId);
-                if (activeChat) {
-                    activeChat.messages = [];
-                    await API.saveChat(state.documentId, activeChat);
-                }
-            }
-            renderMessages(els.sidebarMessages, []);
-        }
-    });
+      } catch (err) {
+          state.sidebarContext.conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
+          await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      }
+  };
 
-    els.resetSidebarBtn.addEventListener('click', resetSidebarToDocumentMode);
-    els.chatHistorySelect.addEventListener('change', () => setActiveChat(els.chatHistorySelect.value));
-    els.newChatBtn.addEventListener('click', createNewChat);
-    els.saveNodeFromSidebarBtn.addEventListener('click', async () => {
-        if (state.sidebarContext.mode !== 'element' || !state.sidebarContext.sourceElement) return;
+  els.sidebarSendBtn.addEventListener('click', send);
+  els.sidebarInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  
+  els.sidebarDiscardBtn.addEventListener('click', async () => {
+      if (confirm('确定要清空当前对话吗？')) {
+          state.sidebarContext.conversation = [];
+          if (state.sidebarContext.mode === 'document') {
+              const activeChat = state.chats.find(c => c.id === state.activeChatId);
+              if (activeChat) {
+                  activeChat.messages = [];
+                  await API.saveChat(state.documentId, activeChat);
+              }
+          }
+          renderMessages(els.sidebarMessages, []);
+      }
+  });
 
-        const { sourceElement, conversation, sourceNodeId } = state.sidebarContext;
-        if (sourceNodeId) {
-            const nodeToUpdate = state.nodes.find(n => n.node_id === sourceNodeId);
-            if (nodeToUpdate) {
-                nodeToUpdate.conversation_log = conversation;
-                try {
-                    await API.saveNode(state.documentId, nodeToUpdate);
-                } catch(e) {
-                    console.error("更新节点失败:", e);
-                }
-            }
-        } else {
-            const node = await saveConversationAsNode(sourceElement, conversation);
-            addNodeToCanvas(node);
-        }
-        await resetSidebarToDocumentMode();
-    });
+  els.resetSidebarBtn.addEventListener('click', resetSidebarToDocumentMode);
+  els.chatHistorySelect.addEventListener('change', () => setActiveChat(els.chatHistorySelect.value));
+  els.newChatBtn.addEventListener('click', createNewChat);
+  els.saveNodeFromSidebarBtn.addEventListener('click', async () => {
+      if (state.sidebarContext.mode !== 'element' || !state.sidebarContext.sourceElement) return;
+
+      const { sourceElement, conversation, sourceNodeId } = state.sidebarContext;
+      if (sourceNodeId) {
+          const nodeToUpdate = state.nodes.find(n => n.node_id === sourceNodeId);
+          if (nodeToUpdate) {
+              nodeToUpdate.conversation_log = conversation;
+              try {
+                  await API.saveNode(state.documentId, nodeToUpdate);
+              } catch(e) {
+                  console.error("更新节点失败:", e);
+              }
+          }
+      } else {
+          const node = await saveConversationAsNode(sourceElement, conversation);
+          addNodeToCanvas(node);
+      }
+      await resetSidebarToDocumentMode();
+  });
 }
 
 function initSidebarDropZone() {
