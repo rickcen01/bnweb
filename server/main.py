@@ -15,9 +15,12 @@ import shutil
 from pathlib import Path
 import zipfile
 import tempfile
+import requests
+import io
 
 import markdown2
 from google import genai
+from google.genai import types
 import html2text
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -94,19 +97,17 @@ def index():
 
 
 app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
-# 【结构修改】静态文件服务现在直接指向DOCS_DIR，以支持子文件夹访问
 app.mount("/api/documents_assets", StaticFiles(directory=DOCS_DIR), name="documents_assets")
 
 
 @app.get("/api/documents")
 def list_documents() -> List[Dict[str, Any]]:
     docs = []
-    # 【结构修改】现在遍历documents目录下的子文件夹作为每个文档的标识
     for fname in os.listdir(DOCS_DIR):
         path = os.path.join(DOCS_DIR, fname)
         if os.path.isdir(path):
             docs.append({
-                'document_id': fname, # document_id 现在是文件夹名
+                'document_id': fname,
                 'title': fname,
             })
     return docs
@@ -114,7 +115,6 @@ def list_documents() -> List[Dict[str, Any]]:
 
 @app.get("/api/document/{document_id}", response_class=HTMLResponse)
 def get_document(document_id: str):
-    # 【结构修改】HTML文件路径现在是 {document_id}/{document_id}.html
     html_filename = f"{document_id}.html"
     path = os.path.join(DOCS_DIR, document_id, html_filename)
     if not os.path.isfile(path):
@@ -127,7 +127,6 @@ def get_document(document_id: str):
 def upload_document(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(('.html', '.htm')):
         raise HTTPException(400, detail="Only HTML documents are supported")
-    # 为了兼容性，普通HTML上传仍然放在根目录，不创建子文件夹
     dest = os.path.join(DOCS_DIR, file.filename)
     with open(dest, 'wb') as f:
         f.write(file.file.read())
@@ -160,7 +159,6 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
         if os.path.exists(tmp_pdf_path):
             os.remove(tmp_pdf_path)
 
-    # 【结构修改】这个名字现在是文档的父文件夹名，也是document_id
     doc_foldername = f"{Path(file.filename).stem}_{int(time.time())}"
     doc_dir = os.path.join(DOCS_DIR, doc_foldername)
     os.makedirs(doc_dir)
@@ -204,45 +202,18 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                         clean_md_content = f.read()
                     
                     md_content_for_html = clean_md_content
-
-                    # 【结构修改】MD文件中的路径应该是相对于它自己的文件夹，所以就是 'images/...'
-                    # 无需替换，原始路径 'images/...' 就是正确的
                     md_for_ai_out_path = os.path.join(doc_dir, md_filename)
                     with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
-                        f.write(clean_md_content) # 直接写入纯净的MD内容
-
-                    # 【结构修改】将图片文件夹移动到新创建的文档专属文件夹下，并命名为 'images'
+                        f.write(clean_md_content)
+                    
                     target_images_path = os.path.join(doc_dir, 'images')
                     shutil.move(source_media_path, target_images_path)
 
     if found_media_dir_name:
         web_accessible_path = f"/api/documents_assets/{doc_foldername}/images/"
-        
-        # --- 修正后的替换逻辑 开始 ---
-        
-        print("\n" + "="*50)
-        print(">>> [调试信息] 准备进行路径替换...")
-        print(f"    - 发现的媒体文件夹名: {found_media_dir_name}")
-        print(f"    - 目标Web访问路径: {web_accessible_path}")
-
-        # 新的查找字符串，针对 HTML 的 src 属性
         search_string = f'src="{found_media_dir_name}/'
-        # 新的替换字符串
         replace_string = f'src="{web_accessible_path}'
-        
-        print(f"\n    - 正在查找 (HTML模式): '{search_string}'")
-        print(f"    - 准备替换为: '{replace_string}'")
-
-        original_content = md_content_for_html
         md_content_for_html = md_content_for_html.replace(search_string, replace_string)
-
-        if original_content == md_content_for_html:
-            print("\n    >>> [警告] 替换操作未改变任何内容！请检查Markdown内容中的图片格式。")
-        else:
-            print("\n    >>> [成功] 路径替换已执行！")
-
-        print("="*50 + "\n")
-        # --- 修正后的替换逻辑 结束 ---
 
     html_for_frontend = markdown2.markdown(md_content_for_html, extras=["fenced-code-blocks", "tables"])
     html_out_path = os.path.join(doc_dir, html_filename)
@@ -256,7 +227,6 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
 
 
 def _nodes_path(document_id: str) -> str:
-    # 节点和聊天记录的JSON文件仍然存储在独立的目录中，不受影响
     return os.path.join(NODES_DIR, f"{document_id}.json")
 
 
@@ -344,9 +314,94 @@ class ChatRequest(BaseModel):
     source_element_id: Optional[str] = None
     source_element_html: Optional[str] = None
     selected_elements_html: Optional[List[str]] = None
+    image_url: Optional[str] = None
 
 
 GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
+
+
+def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]:
+    """
+    根据给定的URL获取图片，并调用AI模型进行详细分析。
+    """
+    image_bytes = None
+    mime_type = 'image/png'  # 默认值
+    
+    try:
+        if image_url.startswith('/api/documents_assets/'):
+            local_path = image_url.replace('/api/documents_assets/', '', 1)
+            full_path = os.path.join(DOCS_DIR, local_path)
+            
+            print(f"--- [图片分析] 正在从本地路径读取图片: {full_path}")
+            if os.path.exists(full_path):
+                with open(full_path, 'rb') as f:
+                    image_bytes = f.read()
+                if full_path.lower().endswith(('.jpg', '.jpeg')):
+                    mime_type = 'image/jpeg'
+            else:
+                print(f"--- [图片分析] 警告: 本地文件未找到: {full_path}")
+                return "[图片分析失败：服务器未找到对应的图片文件]"
+
+        elif image_url.startswith('http://') or image_url.startswith('https://'):
+            print(f"--- [图片分析] 正在从URL下载图片: {image_url}")
+            response = requests.get(image_url, stream=True)
+            response.raise_for_status()
+            image_bytes = response.content
+            content_type = response.headers.get('Content-Type')
+            if content_type:
+                mime_type = content_type
+        else:
+            print(f"--- [图片分析] 错误: 不支持的图片URL格式: {image_url}")
+            return "[图片分析失败：不支持的图片URL格式]"
+
+        if not image_bytes:
+            return "[图片分析失败：无法获取图片数据]"
+
+        image_analysis_prompt = """
+        Please carefully analyze this image and output a detailed, structured description of everything it contains.  
+        Do not summarize. Instead, list all visible elements and details.  
+        Your description should include:  
+        - Objects and entities (what they are, where they are, their relationships)  
+        - Text present in the image (transcribe exactly if possible)  
+        - Numbers, symbols, equations, charts, or tables  
+        - Colors, shapes, sizes, positions, and layout  
+        - Any actions, interactions, or context clues  
+        - If the image includes diagrams, figures, or math/physics notations, describe them precisely  
+
+        Output should be verbose and exhaustive, so that another model reading your output can fully reconstruct and understand the image without ever seeing it.
+        """
+
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        
+        # --- [新增] 详细的AI输入日志 ---
+        print("\n" + "="*50)
+        print("====== V V V ====== SENDING IMAGE TO GEMINI API ====== V V V ======")
+        print(">>> IMAGE ANALYSIS PROMPT:")
+        print(image_analysis_prompt)
+        print(f">>> IMAGE MIME_TYPE: {mime_type}")
+        print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[image_part, image_analysis_prompt]
+        )
+
+        # --- [新增] 详细的AI输出日志 ---
+        print("\n" + "="*50)
+        print("====== V V V ====== GEMINI API IMAGE RESPONSE ====== V V V ======")
+        print(response.text)
+        print("====== ^ ^ ^ ====== END OF IMAGE RESPONSE ====== ^ ^ ^ ======")
+        print("="*50 + "\n")
+
+        return response.text
+
+    except Exception as e:
+        print(f"--- [图片分析] 调用Gemini进行图片分析时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"[图片分析失败: {e}]"
+
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
@@ -363,8 +418,12 @@ def chat(req: ChatRequest):
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        image_description = None
+        if req.image_url:
+            print(f"--- [聊天请求] 检测到图片URL，开始分析: {req.image_url}")
+            image_description = analyze_image_with_ai(client, req.image_url)
 
-        # 【结构修改】MD文件路径现在也基于document_id子文件夹
         md_filename = f"{req.document_id}.md"
         md_filepath = os.path.join(DOCS_DIR, req.document_id, md_filename)
         
@@ -380,17 +439,13 @@ def chat(req: ChatRequest):
         h.ignore_links = True
         
         focused_content_md = ""
-        
         if req.selected_elements_html:
-            md_parts = []
-            for i, html_chunk in enumerate(req.selected_elements_html):
-                element_md = h.handle(html_chunk)
-                md_parts.append(f"--- 选中内容 {i+1} ---\n{element_md}")
+            md_parts = [h.handle(html) for html in req.selected_elements_html]
             focused_content_md = "\n".join(md_parts)
-        
         elif req.source_element_html:
             focused_content_md = h.handle(req.source_element_html)
         
+        # --- [修改] 打印聚焦内容的日志，风格与代码1保持一致 ---
         if focused_content_md:
             print("\n" + "+-"*28 + "+")
             print("|| CONVERTED MARKDOWN FROM SELECTED ELEMENTS SENT TO MODEL: ||")
@@ -398,27 +453,40 @@ def chat(req: ChatRequest):
             print(focused_content_md)
             print("+-"*28 + "+\n")
 
-        server_history = []
-        
         context_prompt_parts = [
             "你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。",
-            "我会给你提供[全文Markdown内容]作为主要背景，可能还会提供一段或多段用户当前聚焦的[聚焦内容]。",
-            "你的任务是：优先基于[聚焦内容]回答问题，并结合[全文Markdown内容]提供必要的上下文信息。如果问题涉及多个[聚焦内容]，请综合它们进行回答。如果问题需要推导或分析，请分步骤展示推理过程。",
-            "---",
-            "[全文Markdown内容]",
-            full_doc_md
+            "我会给你提供多种上下文信息，请综合利用它们来回答用户的问题。"
         ]
+
+        if image_description:
+            context_prompt_parts.extend([
+                "\n---",
+                "[图片内容描述]",
+                "这是关于用户当前正在查看的图片的一份详细文字描述，请把它作为最重要的信息来源来回答问题。",
+                image_description
+            ])
+        
+        context_prompt_parts.extend([
+            "\n---",
+            "[全文Markdown内容]",
+            "这是图片所在文档的全部内容，用于提供背景信息。",
+            full_doc_md
+        ])
 
         if focused_content_md:
             context_prompt_parts.extend([
                 "\n---",
                 "[聚焦内容]",
+                "这是用户在界面上选中的具体元素（可能包含图片本身或其他文本），作为补充信息。",
                 focused_content_md
             ])
         
         full_context_string = "\n".join(context_prompt_parts)
-        server_history.append({'role': 'user', 'parts': [{'text': full_context_string}]})
-        server_history.append({'role': 'model', 'parts': [{'text': "好的，上下文已收到。请开始提问。"}]})
+        
+        server_history = [
+            {'role': 'user', 'parts': [{'text': full_context_string}]},
+            {'role': 'model', 'parts': [{'text': "好的，上下文已收到。请开始提问。"}]}
+        ]
 
         for msg in req.messages:
             role = 'model' if msg.role == 'assistant' else 'user'
@@ -433,6 +501,7 @@ def chat(req: ChatRequest):
 
         prompt = last_user_message_for_model['parts'][0]['text']
         
+        # --- [修改] 仿照代码1，添加详细的AI输入日志 ---
         print("\n" + "="*50)
         print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
         print(">>> CONVERSATION HISTORY (for model context):")
@@ -444,6 +513,7 @@ def chat(req: ChatRequest):
 
         response = chat_session.send_message(prompt)
 
+        # --- [修改] 仿照代码1，添加详细的AI完整响应日志 ---
         response_dict = {}
         try:
             response_dict = type(response).to_dict(response)

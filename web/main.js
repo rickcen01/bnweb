@@ -239,12 +239,19 @@ function openMicroChat(atomEl) {
     input.value = '';
     conversation.push({ role: 'user', text, timestamp: Date.now() });
     await renderMessages(messagesEl, conversation);
+    
+    // 【修改】构建请求体，如果是图片则附带 image_url
     const payload = {
       document_id: state.documentId,
       source_element_id: atomEl.dataset.atomId,
       messages: conversation,
       source_element_html: atomEl.dataset.originalHtml,
     };
+    // 如果是图片元素，则添加其src
+    if (atomEl.tagName === 'IMG') {
+        payload.image_url = atomEl.src;
+    }
+
     try {
       const res = await API.chat(payload);
       conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
@@ -439,6 +446,13 @@ function openNodeConversation(node) {
           messages: node.conversation_log,
           source_element_html: node.source_element_html || '',
       };
+
+      // 【新增】如果知识节点源是图片，也添加image_url
+      const sourceElement = document.querySelector(`[data-atom-id="${node.source_element_id}"]`);
+      if (sourceElement && sourceElement.tagName === 'IMG') {
+          payload.image_url = sourceElement.src;
+      }
+      
       try {
           const res = await API.chat(payload);
           node.conversation_log.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
@@ -646,16 +660,36 @@ function initSidebarChat() {
         state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
         await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
+        // 【修改】构建请求体，检查是否有选中的图片
         const payload = {
             document_id: state.documentId,
             messages: state.sidebarContext.conversation,
         };
         
+        let imageUrl = null;
+        // 检查选中元素中是否有图片
         if (state.selectedElements.length > 0) {
             payload.selected_elements_html = state.selectedElements.map(el => el.html);
+            // 查找第一个图片元素并获取其src
+            for (const item of state.selectedElements) {
+                const match = item.html.match(/<img[^>]+src="([^"]+)"/);
+                if (match) {
+                    imageUrl = match[1];
+                    break;
+                }
+            }
         } else if (state.sidebarContext.mode === 'element' && state.sidebarContext.sourceElement) {
             payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
             payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
+            // 如果聚焦的元素是图片，获取其src
+            if (state.sidebarContext.sourceElement.tagName === 'IMG') {
+                imageUrl = state.sidebarContext.sourceElement.src;
+            }
+        }
+        
+        // 如果找到了图片URL，就添加到payload中
+        if (imageUrl) {
+            payload.image_url = imageUrl;
         }
 
         clearElementSelection();
