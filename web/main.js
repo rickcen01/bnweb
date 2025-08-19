@@ -237,31 +237,33 @@ function openMicroChat(atomEl) {
   async function send() {
     const text = input.value.trim(); if (!text) return;
     input.value = '';
+    
     conversation.push({ role: 'user', text, timestamp: Date.now() });
+    const currentConversationLength = conversation.length;
+
     await renderMessages(messagesEl, conversation);
     
     const payload = {
       document_id: state.documentId,
-      source_element_id: atomEl.dataset.atomId,
       messages: conversation,
       source_element_html: atomEl.dataset.originalHtml,
     };
     
-    // ================== [ THE FINAL FIX ] ==================
-    // 之前: 检查 atomEl 本身是不是 <img>
-    // 现在: 在 atomEl 内部查找 <img> 元素
     const imageElement = atomEl.querySelector('img');
-    
-    // 如果找到了图片元素，就提取它的 src
     if (imageElement) {
         payload.image_url = imageElement.getAttribute('src');
     }
-    // =======================================================
-
-    console.log("[DEBUG] Sending from openMicroChat ('?' icon). Payload:", JSON.stringify(payload, null, 2));
 
     try {
       const res = await API.chat(payload);
+      
+      if (res.first_user_message_override && currentConversationLength > 0) {
+        const userMessageIndex = currentConversationLength - 1;
+        if (conversation[userMessageIndex] && conversation[userMessageIndex].role === 'user') {
+          conversation[userMessageIndex].text = res.first_user_message_override;
+        }
+      }
+
       conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
       await renderMessages(messagesEl, conversation);
     } catch (err) {
@@ -288,26 +290,20 @@ function closeAllMicroChats() {
   document.querySelectorAll('.micro-chat:not(.sidebar)').forEach(e => e.remove());
 }
 
-// 【修改】此函数是解决公式渲染问题的关键
 async function renderMessages(container, messages) {
-  // 1. 清空并重新填充所有消息
   container.innerHTML = '';
   for (const m of messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
     
     if (m.role === 'assistant' && window.marked) {
-      // 先用marked库将Markdown转为HTML
       div.innerHTML = marked.parse(m.text, { breaks: true });
     } else {
-      // 用户消息直接显示文本
       div.textContent = m.text;
     }
     container.appendChild(div);
   }
   
-  // 2. 【关键】在所有HTML内容都插入到页面后，再调用MathJax来渲染整个消息容器
-  // 这样可以确保MathJax能找到并正确处理所有由marked生成的、包含公式代码的HTML元素
   if (window.MathJax && window.MathJax.typesetPromise) {
     try {
       await window.MathJax.typesetPromise([container]);
@@ -316,7 +312,6 @@ async function renderMessages(container, messages) {
     }
   }
   
-  // 3. 滚动到底部
   container.scrollTop = container.scrollHeight;
 }
 
@@ -445,24 +440,35 @@ function openNodeConversation(node) {
       const text = input.value.trim();
       if (!text) return;
       input.value = '';
+      
       node.conversation_log.push({ role: 'user', text, timestamp: Date.now() });
+      const currentConversationLength = node.conversation_log.length;
       await renderMessages(messagesEl, node.conversation_log);
 
       const payload = {
           document_id: state.documentId,
-          source_element_id: node.source_element_id,
           messages: node.conversation_log,
           source_element_html: node.source_element_html || '',
       };
 
-      // 【新增】如果知识节点源是图片，也添加image_url
       const sourceElement = document.querySelector(`[data-atom-id="${node.source_element_id}"]`);
-      if (sourceElement && sourceElement.tagName === 'IMG') {
-          payload.image_url = sourceElement.src;
+      if (sourceElement){
+          const imageElement = sourceElement.querySelector('img');
+          if(imageElement) {
+            payload.image_url = imageElement.src;
+          }
       }
       
       try {
           const res = await API.chat(payload);
+
+          if (res.first_user_message_override && currentConversationLength > 0) {
+            const userMessageIndex = currentConversationLength - 1;
+            if (node.conversation_log[userMessageIndex] && node.conversation_log[userMessageIndex].role === 'user') {
+              node.conversation_log[userMessageIndex].text = res.first_user_message_override;
+            }
+          }
+
           node.conversation_log.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
           await API.saveNode(state.documentId, node);
           await renderMessages(messagesEl, node.conversation_log);
@@ -666,6 +672,7 @@ function initSidebarChat() {
       }
       
       state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
+      const currentConversationLength = state.sidebarContext.conversation.length;
       await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
       const payload = {
@@ -689,14 +696,10 @@ function initSidebarChat() {
           payload.source_element_id = state.sidebarContext.sourceElement.dataset.atomId;
           payload.source_element_html = state.sidebarContext.sourceElement.dataset.originalHtml;
           
-          // ================== [ THE FINAL FIX - PART 2 ] ==================
-          // 之前: 检查 sourceElement 本身是不是 <img>
-          // 现在: 在 sourceElement 内部查找 <img> 元素
           const imageElement = state.sidebarContext.sourceElement.querySelector('img');
           if (imageElement) {
               imageUrl = imageElement.getAttribute('src');
           }
-          // ================================================================
       }
       
       if (imageUrl) {
@@ -709,6 +712,15 @@ function initSidebarChat() {
 
       try {
           const res = await API.chat(payload);
+          
+          if (res.first_user_message_override && currentConversationLength > 0) {
+              const userMessageIndex = currentConversationLength - 1;
+              if (state.sidebarContext.conversation[userMessageIndex] && state.sidebarContext.conversation[userMessageIndex].role === 'user') {
+                  console.log("[DEBUG] Overriding first user message in history with full context from server.");
+                  state.sidebarContext.conversation[userMessageIndex].text = res.first_user_message_override;
+              }
+          }
+
           state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
           
           if (state.sidebarContext.mode === 'document') {

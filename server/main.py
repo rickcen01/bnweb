@@ -325,7 +325,7 @@ def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]
     根据给定的URL获取图片，并调用AI模型进行详细分析。
     """
     image_bytes = None
-    mime_type = 'image/png'  # 默认值
+    mime_type = 'image/png'
     
     try:
         if image_url.startswith('/api/documents_assets/'):
@@ -357,42 +357,14 @@ def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]
         if not image_bytes:
             return "[图片分析失败：无法获取图片数据]"
 
-        image_analysis_prompt = """
-        Please carefully analyze this image and output a detailed, structured description of everything it contains.  
-        Do not summarize. Instead, list all visible elements and details.  
-        Your description should include:  
-        - Objects and entities (what they are, where they are, their relationships)  
-        - Text present in the image (transcribe exactly if possible)  
-        - Numbers, symbols, equations, charts, or tables  
-        - Colors, shapes, sizes, positions, and layout  
-        - Any actions, interactions, or context clues  
-        - If the image includes diagrams, figures, or math/physics notations, describe them precisely  
-
-        Output should be verbose and exhaustive, so that another model reading your output can fully reconstruct and understand the image without ever seeing it.
-        """
+        image_analysis_prompt = "Please carefully analyze this image and output a detailed, structured description of everything it contains. Do not summarize. Instead, list all visible elements and details. Your description should include: Objects and entities (what they are, where they are, their relationships), Text present in the image (transcribe exactly if possible), Numbers, symbols, equations, charts, or tables, Colors, shapes, sizes, positions, and layout, Any actions, interactions, or context clues, If the image includes diagrams, figures, or math/physics notations, describe them precisely. Output should be verbose and exhaustive, so that another model reading your output can fully reconstruct and understand the image without ever seeing it."
 
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         
-        # --- [新增] 详细的AI输入日志 ---
-        print("\n" + "="*50)
-        print("====== V V V ====== SENDING IMAGE TO GEMINI API ====== V V V ======")
-        print(">>> IMAGE ANALYSIS PROMPT:")
-        print(image_analysis_prompt)
-        print(f">>> IMAGE MIME_TYPE: {mime_type}")
-        print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
-        print("="*50 + "\n")
-
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[image_part, image_analysis_prompt]
         )
-
-        # --- [新增] 详细的AI输出日志 ---
-        print("\n" + "="*50)
-        print("====== V V V ====== GEMINI API IMAGE RESPONSE ====== V V V ======")
-        print(response.text)
-        print("====== ^ ^ ^ ====== END OF IMAGE RESPONSE ====== ^ ^ ^ ======")
-        print("="*50 + "\n")
 
         return response.text
 
@@ -410,10 +382,7 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="No user message found")
     
     if not GEMINI_API_KEY:
-        response_text = (
-            f"[stub] 理解你的问题是: '{last_user_message.text}'"
-            "。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。"
-        )
+        response_text = (f"[stub] 理解你的问题是: '{last_user_message.text}'。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。")
         return {"role": "assistant", "text": response_text, "timestamp": time.time()}
 
     try:
@@ -424,17 +393,6 @@ def chat(req: ChatRequest):
             print(f"--- [聊天请求] 检测到图片URL，开始分析: {req.image_url}")
             image_description = analyze_image_with_ai(client, req.image_url)
 
-        md_filename = f"{req.document_id}.md"
-        md_filepath = os.path.join(DOCS_DIR, req.document_id, md_filename)
-        
-        full_doc_md = ""
-        if os.path.exists(md_filepath):
-            with open(md_filepath, 'r', encoding='utf-8') as f:
-                full_doc_md = f.read()
-        else:
-            full_doc_md = "[无法找到完整的Markdown文档上下文]"
-            print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
-
         h = html2text.HTML2Text()
         h.ignore_links = True
         
@@ -444,97 +402,81 @@ def chat(req: ChatRequest):
             focused_content_md = "\n".join(md_parts)
         elif req.source_element_html:
             focused_content_md = h.handle(req.source_element_html)
-        
-        # --- [修改] 打印聚焦内容的日志，风格与代码1保持一致 ---
-        if focused_content_md:
-            print("\n" + "+-"*28 + "+")
-            print("|| CONVERTED MARKDOWN FROM SELECTED ELEMENTS SENT TO MODEL: ||")
-            print("+-"*28 + "+")
-            print(focused_content_md)
-            print("+-"*28 + "+\n")
 
-        context_prompt_parts = [
-            "你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。",
-            "我会给你提供多种上下文信息，请综合利用它们来回答用户的问题。"
-        ]
+        is_first_turn = len(req.messages) == 1
+        response_payload = {}
+        ai_response_text = ""
 
-        if image_description:
-            context_prompt_parts.extend([
-                "\n---",
-                "[图片内容描述]",
-                "这是关于用户当前正在查看的图片的一份详细文字描述，请把它作为最重要的信息来源来回答问题。",
-                image_description
-            ])
-        
-        context_prompt_parts.extend([
-            "\n---",
-            "[全文Markdown内容]",
-            "这是图片所在文档的全部内容，用于提供背景信息。",
-            full_doc_md
-        ])
+        if is_first_turn:
+            print("--- [聊天逻辑] 检测到为首次提问，正在构建完整上下文。 ---")
+            
+            md_filename = f"{req.document_id}.md"
+            md_filepath = os.path.join(DOCS_DIR, req.document_id, md_filename)
+            
+            full_doc_md = ""
+            if os.path.exists(md_filepath):
+                with open(md_filepath, 'r', encoding='utf-8') as f:
+                    full_doc_md = f.read()
+            else:
+                full_doc_md = "[无法找到完整的Markdown文档上下文]"
+                print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
-        if focused_content_md:
-            context_prompt_parts.extend([
-                "\n---",
-                "[聚焦内容]",
-                "这是用户在界面上选中的具体元素（可能包含图片本身或其他文本），作为补充信息。",
-                focused_content_md
-            ])
-        
-        full_context_string = "\n".join(context_prompt_parts)
-        
-        server_history = [
-            {'role': 'user', 'parts': [{'text': full_context_string}]},
-            {'role': 'model', 'parts': [{'text': "好的，上下文已收到。请开始提问。"}]}
-        ]
+            context_parts = ["你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。我会给你提供多种上下文信息，请综合利用它们来回答用户的问题。"]
+            if image_description:
+                context_parts.extend(["\n---", "[图片内容描述]", "这是关于用户当前正在查看的图片的一份详细文字描述，请把它作为最重要的信息来源来回答问题。", image_description])
+            context_parts.extend(["\n---", "[全文Markdown内容]", "这是文档的全部内容，用于提供背景信息。", full_doc_md])
+            if focused_content_md:
+                context_parts.extend(["\n---", "[聚焦内容]", "这是用户在界面上选中的具体元素，作为补充信息。", focused_content_md])
+            
+            initial_context_string = "\n".join(context_parts)
+            user_question = req.messages[0].text
+            
+            prompt_for_model = f"{initial_context_string}\n\n---\n\n请你基于以上所有信息，回答我的问题：\n\n{user_question}"
+            
+            print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
 
-        for msg in req.messages:
-            role = 'model' if msg.role == 'assistant' else 'user'
-            server_history.append({'role': role, 'parts': [{'text': msg.text}]})
-        
-        last_user_message_for_model = server_history.pop()
+            response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt_for_model])
+            ai_response_text = response.text
 
-        chat_session = client.chats.create(
-            model="gemini-2.5-flash",
-            history=server_history
-        )
+            response_payload = {
+                "role": "assistant", 
+                "text": ai_response_text, 
+                "timestamp": time.time(),
+                "first_user_message_override": prompt_for_model 
+            }
+        else:
+            print("--- [聊天逻辑] 检测到为后续提问，将使用历史记录。 ---")
+            history_for_model = [{'role': 'model' if msg.role == 'assistant' else 'user', 'parts': [{'text': msg.text}]} for msg in req.messages[:-1]]
+            
+            last_user_question = req.messages[-1].text
+            prompt_for_model = last_user_question
+            if focused_content_md:
+                prompt_for_model = (f"请参考我新选中的内容，并结合我们之前的完整对话，回答我的问题。\n\n[新聚焦内容]\n{focused_content_md}\n\n---\n我的问题是：{last_user_question}")
+            
+            print("\n" + "="*50)
+            print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
+            print(">>> CONVERSATION HISTORY (for model context):")
+            print(json.dumps(history_for_model, ensure_ascii=False, indent=2))
+            print("\n>>> CURRENT USER PROMPT:")
+            print(prompt_for_model)
+            print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
+            print("="*50 + "\n")
 
-        prompt = last_user_message_for_model['parts'][0]['text']
-        
-        # --- [修改] 仿照代码1，添加详细的AI输入日志 ---
-        print("\n" + "="*50)
-        print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
-        print(">>> CONVERSATION HISTORY (for model context):")
-        print(json.dumps(server_history, ensure_ascii=False, indent=2))
-        print("\n>>> CURRENT USER PROMPT:")
-        print(prompt)
-        print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
-        print("="*50 + "\n")
+            chat_session = client.chats.create(model="gemini-2.5-flash", history=history_for_model)
+            response = chat_session.send_message(prompt_for_model)
+            ai_response_text = response.text
 
-        response = chat_session.send_message(prompt)
+            response_payload = {
+                "role": "assistant", 
+                "text": ai_response_text, 
+                "timestamp": time.time()
+            }
 
-        # --- [修改] 仿照代码1，添加详细的AI完整响应日志 ---
-        response_dict = {}
-        try:
-            response_dict = type(response).to_dict(response)
-        except Exception:
-            try:
-                response_dict = json.loads(str(response))
-            except Exception:
-                response_dict = {"raw_string_representation": str(response)}
-
-        print("\n" + "="*50)
-        print("====== V V V ====== GEMINI API FULL RESPONSE ====== V V V ======")
-        print(json.dumps(response_dict, ensure_ascii=False, indent=2))
-        print("====== ^ ^ ^ ====== END OF FULL RESPONSE ====== ^ ^ ^ ======")
-        print("="*50 + "\n")
-
-        ai_response_text = response.text
+        return response_payload
 
     except Exception as e:
         print(f"调用 Gemini API 时出错: {e}")
         import traceback
         traceback.print_exc()
         ai_response_text = f"调用AI服务时出错: {e}"
-
-    return {"role": "assistant", "text": ai_response_text, "timestamp": time.time()}
+        return {"role": "assistant", "text": ai_response_text, "timestamp": time.time()}
