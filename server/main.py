@@ -361,10 +361,23 @@ def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]
 
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         
+        # --- [新增] 打印发送给AI的图片分析请求 ---
+        print("\n" + "="*20 + " [AI Image Analysis Request] " + "="*20)
+        print(f"--- Model: gemini-2.5-flash")
+        print(f"--- Mime Type: {mime_type}")
+        print(f"--- Prompt: {image_analysis_prompt}")
+        print("="*65 + "\n")
+        
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[image_part, image_analysis_prompt]
         )
+
+        # --- [新增] 打印从AI收到的完整图片分析响应 ---
+        print("\n" + "="*20 + " [AI Image Analysis Response] " + "="*20)
+        print("--- Raw Response Object ---")
+        print(response)
+        print("="*67 + "\n")
 
         return response.text
 
@@ -381,6 +394,12 @@ def chat(req: ChatRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No user message found")
     
+    # --- [新增] 打印从前端收到的完整请求体 ---
+    print("\n" + "#"*25 + " [New Chat API Request Received] " + "#"*25)
+    # 使用 Pydantic 的 model_dump_json 方法来格式化输出
+    print(req.model_dump_json(indent=2))
+    print("#"*81 + "\n")
+
     if not GEMINI_API_KEY:
         response_text = (f"[stub] 理解你的问题是: '{last_user_message.text}'。请设置 GOOGLE_API_KEY 环境变量以启用 Gemini AI。")
         return {"role": "assistant", "text": response_text, "timestamp": time.time()}
@@ -421,21 +440,67 @@ def chat(req: ChatRequest):
                 full_doc_md = "[无法找到完整的Markdown文档上下文]"
                 print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
-            context_parts = ["你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。我会给你提供多种上下文信息，请综合利用它们来回答用户的问题。"]
+            # 定义系统提示词
+            system_prompt = """你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。
+
+            我会给你三部分信息：
+            1. 文档全文的 Markdown 内容（可能包含文字、公式、图片、表格）
+            2. 用户在文档中选中的“聚焦内容”
+            3. 用户提出的问题
+
+            你的任务是：
+            - 优先基于“聚焦内容”回答问题，如果聚焦内容是图片，就优先基于图片内容描述回答问题
+            - 结合全文内容补充必要的上下文信息
+            - 如果问题需要推导或分析，分步骤展示推理过程
+            - 如果无法从文档中找到答案，请明确说明，并避免编造
+            - 如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯
+            - 如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格
+            """
+
+            # 构造上下文 parts
+            context_parts = [system_prompt]
+
+            # 图片描述（如果有）
             if image_description:
-                context_parts.extend(["\n---", "[图片内容描述]", "这是关于用户当前正在查看的图片的一份详细文字描述，请把它作为最重要的信息来源来回答问题。", image_description])
-            context_parts.extend(["\n---", "[全文Markdown内容]", "这是文档的全部内容，用于提供背景信息。", full_doc_md])
+                context_parts.extend([
+                    "\n---",
+                    "[图片内容描述]",
+                    "这是关于用户当前正在查看的图片的一份详细文字描述，结合它来回答问题。",
+                    image_description
+                ])
+
+            # 全文 Markdown
+            context_parts.extend([
+                "\n---",
+                "[全文Markdown内容]",
+                full_doc_md
+            ])
+
+            # 聚焦内容（如果有）
             if focused_content_md:
-                context_parts.extend(["\n---", "[聚焦内容]", "这是用户在界面上选中的具体元素，作为补充信息。", focused_content_md])
-            
+                context_parts.extend([
+                    "\n---",
+                    "[聚焦内容]",
+                    focused_content_md
+                ])
+
+            # 拼接成最终提示词
             initial_context_string = "\n".join(context_parts)
             user_question = req.messages[0].text
-            
-            prompt_for_model = f"{initial_context_string}\n\n---\n\n请你基于以上所有信息，回答我的问题：\n\n{user_question}"
+
+            prompt_for_model = f"{initial_context_string}\n\n---\n\n[用户问题]\n{user_question}\n\n请基于以上信息，给出清晰、准确且结构化的回答。"
+
             
             print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
 
             response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt_for_model])
+            
+            # --- [新增] 打印从AI收到的完整响应 (首次提问) ---
+            print("\n" + "="*20 + " [AI Chat Response (First Turn)] " + "="*20)
+            print("--- Raw Response Object ---")
+            print(response)
+            print("="*68 + "\n")
+
             ai_response_text = response.text
 
             response_payload = {
@@ -464,6 +529,13 @@ def chat(req: ChatRequest):
 
             chat_session = client.chats.create(model="gemini-2.5-flash", history=history_for_model)
             response = chat_session.send_message(prompt_for_model)
+
+            # --- [新增] 打印从AI收到的完整响应 (后续提问) ---
+            print("\n" + "="*20 + " [AI Chat Response (Follow-up)] " + "="*20)
+            print("--- Raw Response Object ---")
+            print(response)
+            print("="*69 + "\n")
+
             ai_response_text = response.text
 
             response_payload = {

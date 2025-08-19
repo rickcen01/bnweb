@@ -415,8 +415,8 @@ function redrawWires() {
   });
 }
 
-function openNodeConversation(node) {
-  closeAllMicroChats();
+async function openNodeConversation(node) {
+  // 移除 closeAllMicroChats(); 这一行，以允许同时展开多个知识节点。
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
   const nodeEl = document.querySelector(`.node[data-node-id="${node.node_id}"]`);
@@ -433,8 +433,13 @@ function openNodeConversation(node) {
   const messagesEl = box.querySelector('.messages');
   const input = box.querySelector('input');
   const sendBtn = box.querySelector('.send');
+
+  // 关键改动(1)：必须先将对话框添加到页面中。
+  // 这能确保 MathJax 在渲染公式时可以正确计算其尺寸。
+  els.canvas.appendChild(box);
   
-  renderMessages(messagesEl, node.conversation_log || []);
+  // 关键改动(2)：等待消息和公式渲染完成。
+  await renderMessages(messagesEl, node.conversation_log || []);
 
   const send = async () => {
       const text = input.value.trim();
@@ -503,7 +508,8 @@ function openNodeConversation(node) {
     }
   });
 
-  els.canvas.appendChild(box);
+  // 此行已移动到渲染消息之前，此处无需重复。
+  // els.canvas.appendChild(box);
 }
 
 async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
