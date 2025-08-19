@@ -238,7 +238,7 @@ function openMicroChat(atomEl) {
     const text = input.value.trim(); if (!text) return;
     input.value = '';
     
-    conversation.push({ role: 'user', text, timestamp: Date.now() });
+    conversation.push({ role: 'user', text, displayText: text, timestamp: Date.now() });
     const currentConversationLength = conversation.length;
 
     await renderMessages(messagesEl, conversation);
@@ -299,7 +299,7 @@ async function renderMessages(container, messages) {
     if (m.role === 'assistant' && window.marked) {
       div.innerHTML = marked.parse(m.text, { breaks: true });
     } else {
-      div.textContent = m.text;
+      div.textContent = m.displayText || m.text;
     }
     container.appendChild(div);
   }
@@ -441,7 +441,7 @@ function openNodeConversation(node) {
       if (!text) return;
       input.value = '';
       
-      node.conversation_log.push({ role: 'user', text, timestamp: Date.now() });
+      node.conversation_log.push({ role: 'user', text, displayText: text, timestamp: Date.now() });
       const currentConversationLength = node.conversation_log.length;
       await renderMessages(messagesEl, node.conversation_log);
 
@@ -671,7 +671,7 @@ function initSidebarChat() {
           userMessageText = `${elementTags} ${text}`.trim();
       }
       
-      state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, timestamp: Date.now() });
+      state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, displayText: userMessageText, timestamp: Date.now() });
       const currentConversationLength = state.sidebarContext.conversation.length;
       await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
 
