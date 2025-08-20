@@ -264,7 +264,7 @@ function openMicroChat(atomEl) {
         }
       }
 
-      conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
+      conversation.push({ role: res.role || 'assistant', text: res.text, htmlText: res.htmlText, timestamp: res.timestamp || Date.now() });
       await renderMessages(messagesEl, conversation);
     } catch (err) {
       conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
@@ -495,7 +495,7 @@ async function openNodeConversation(node) {
             }
           }
 
-          node.conversation_log.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
+          node.conversation_log.push({ role: res.role || 'assistant', text: res.text, htmlText: res.htmlText, timestamp: res.timestamp || Date.now() });
           await API.saveNode(state.documentId, node);
           await renderMessages(messagesEl, node.conversation_log);
       } catch (err) {
@@ -761,7 +761,7 @@ function initSidebarChat() {
               }
           }
 
-          state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, timestamp: res.timestamp || Date.now() });
+          state.sidebarContext.conversation.push({ role: res.role || 'assistant', text: res.text, htmlText: res.htmlText,  timestamp: res.timestamp || Date.now() });
           
           if (state.sidebarContext.mode === 'document') {
               const activeChat = state.chats.find(c => c.id === state.activeChatId);

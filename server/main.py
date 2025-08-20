@@ -1,5 +1,5 @@
 # server/main.py
-
+import re 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -449,20 +449,6 @@ def chat(req: ChatRequest):
         is_first_turn = len(req.messages) == 1
         response_payload = {}
         ai_response_text = ""
-        ai_response_html = markdown.markdown(
-            ai_response_text,
-            extensions=[
-                'tables',          # 启用表格
-                'fenced_code',     # 启用代码块
-                'nl2br',           # 将换行符转换成 <br>
-                'pymdownx.arithmatex' # 启用数学公式
-            ],
-            extension_configs={
-                'pymdownx.arithmatex': {
-                    'generic': True
-                }
-            }
-        )
 
         if is_first_turn:
             print("--- [聊天逻辑] 检测到为首次提问，正在构建完整上下文。 ---")
@@ -540,11 +526,25 @@ def chat(req: ChatRequest):
             print("="*68 + "\n")
 
             ai_response_text = response.text
+            
+            # 修复第3步：解开被代码块包裹的<img>标签
+            ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
+
+            # 修复第1步：在获取AI回复后，再将Markdown转换为HTML
+            ai_response_html = markdown.markdown(
+                ai_response_text,
+                extensions=['tables', 'fenced_code', 'nl2br', 'pymdownx.arithmatex'],
+                extension_configs={'pymdownx.arithmatex': {'generic': True}}
+            )
+            
+            # 修复第2步：修正HTML中的图片路径
+            correct_image_path_prefix = f'src="/api/documents_assets/{req.document_id}/images/'
+            ai_response_html = ai_response_html.replace('src="images/', correct_image_path_prefix)
 
             response_payload = {
                 "role": "assistant", 
                 "text": ai_response_text, 
-                "htmlText": ai_response_html, # Add the rendered HTML
+                "htmlText": ai_response_html,
                 "timestamp": time.time(),
                 "first_user_message_override": prompt_for_model 
             }
@@ -577,10 +577,24 @@ def chat(req: ChatRequest):
 
             ai_response_text = response.text
 
+            # 修复第3步：解开被代码块包裹的<img>标签
+            ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
+
+            # 修复第1步：在获取AI回复后，再将Markdown转换为HTML
+            ai_response_html = markdown.markdown(
+                ai_response_text,
+                extensions=['tables', 'fenced_code', 'nl2br', 'pymdownx.arithmatex'],
+                extension_configs={'pymdownx.arithmatex': {'generic': True}}
+            )
+            
+            # 修复第2步：修正HTML中的图片路径
+            correct_image_path_prefix = f'src="/api/documents_assets/{req.document_id}/images/'
+            ai_response_html = ai_response_html.replace('src="images/', correct_image_path_prefix)
+
             response_payload = {
                 "role": "assistant", 
                 "text": ai_response_text, 
-                "htmlText": ai_response_html, # Add the rendered HTML
+                "htmlText": ai_response_html,
                 "timestamp": time.time()
             }
 
