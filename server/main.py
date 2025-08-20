@@ -49,7 +49,7 @@ class Message(BaseModel):
     role: str
     text: str
     timestamp: float
-
+    displayText: Optional[str] = None
 
 class CanvasPosition(BaseModel):
     x: float
@@ -441,7 +441,7 @@ def chat(req: ChatRequest):
                 print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
             # 定义系统提示词
-            system_prompt = """你是一个教育与知识解释助手，擅长解析文档内容并结合上下文回答问题。
+            system_prompt = """你是一个教育与知识解释，答题与解答助手，擅长解析文档内容并结合上下文回答问题。
 
             我会给你三部分信息：
             1. 文档全文的 Markdown 内容（可能包含文字、公式、图片、表格）
@@ -452,7 +452,7 @@ def chat(req: ChatRequest):
             - 优先基于“聚焦内容”回答问题，如果聚焦内容是图片，就优先基于图片内容描述回答问题
             - 结合全文内容补充必要的上下文信息
             - 如果问题需要推导或分析，分步骤展示推理过程
-            - 如果无法从文档中找到答案，请明确说明，并避免编造
+            - 如果涉及回答问题，请结合你自己的观点和文档信息解答
             - 如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯
             - 如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格
             """
@@ -488,7 +488,7 @@ def chat(req: ChatRequest):
             initial_context_string = "\n".join(context_parts)
             user_question = req.messages[0].text
 
-            prompt_for_model = f"{initial_context_string}\n\n---\n\n[用户问题]\n{user_question}\n\n请基于以上信息，给出清晰、准确且结构化的回答。"
+            prompt_for_model = f"{initial_context_string}\n\n---\n\n[用户问题]\n{user_question}\n\n请结合以上信息，给出清晰、准确且结构化的回答。"
 
             
             print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
