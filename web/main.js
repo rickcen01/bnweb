@@ -296,14 +296,28 @@ async function renderMessages(container, messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
     
+    // 【修改】核心逻辑变更：优先使用服务端渲染好的HTML
+    if (m.role === 'assistant' && m.htmlText) {
+      // 如果消息是来自助手并且包含了htmlText，直接使用它
+      div.innerHTML = m.htmlText;
+    } else {
+      // 否则，对于用户消息或旧的兼容消息，只显示纯文本
+      div.textContent = m.displayText || m.text;
+    }
+
+    /* 
+    // 【删除或注释掉】旧的客户端渲染逻辑
     if (m.role === 'assistant' && window.marked) {
       div.innerHTML = marked.parse(m.text, { breaks: true });
     } else {
       div.textContent = m.displayText || m.text;
     }
+    */
+
     container.appendChild(div);
   }
   
+  // MathJax调用部分保持不变，它现在会处理服务端渲染好的HTML中的公式
   if (window.MathJax && window.MathJax.typesetPromise) {
     try {
       await window.MathJax.typesetPromise([container]);
@@ -433,6 +447,13 @@ async function openNodeConversation(node) {
   const messagesEl = box.querySelector('.messages');
   const input = box.querySelector('input');
   const sendBtn = box.querySelector('.send');
+  // 【增加日志】确认DOM操作和渲染的顺序
+  console.log(`[Node Log - ${node.node_id}] Appending chat box to canvas BEFORE rendering messages.`);
+  els.canvas.appendChild(box);
+  
+  console.log(`[Node Log - ${node.node_id}] Calling renderMessages, which will trigger MathJax.`);
+  await renderMessages(messagesEl, node.conversation_log || []);
+  console.log(`[Node Log - ${node.node_id}] renderMessages has completed.`);
 
   // 关键改动(1)：必须先将对话框添加到页面中。
   // 这能确保 MathJax 在渲染公式时可以正确计算其尺寸。
@@ -534,15 +555,28 @@ async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
 }
 
 
+// --- 修改 2: 增强 loadDocument 函数的日志 ---
 async function loadDocument(id) {
   state.documentId = id;
   closeAllMicroChats();
   const html = await API.getDocHtml(id).catch(() => '<p style="color:#a00">无法加载文档</p>');
   els.docHtml.innerHTML = html;
   annotateAtoms();
+
+  // 【增加日志】为文档主体调用MathJax
   if (window.MathJax && window.MathJax.typesetPromise) {
-    try { await window.MathJax.typesetPromise([els.docHtml]); } catch {}
+    console.log('[MathJax Log] Attempting to typeset formulas in the main document content.');
+    try {
+      await window.MathJax.typesetPromise([els.docHtml]);
+      console.log('[MathJax Log] Typesetting completed successfully for the main document.');
+    } catch (err) {
+      // 原来的空 catch 会隐藏错误，现在我们把它打印出来
+      console.error('[MathJax Error] An error occurred during main document typesetting:', err);
+    }
+  } else {
+    console.warn('[MathJax Log] MathJax library is not available.');
   }
+
   await loadNodes(id);
   await loadChats(id);
 }

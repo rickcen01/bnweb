@@ -18,7 +18,7 @@ import tempfile
 import requests
 import io
 
-import markdown2
+import markdown
 from google import genai
 from google.genai import types
 import html2text
@@ -214,8 +214,32 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
         search_string = f'src="{found_media_dir_name}/'
         replace_string = f'src="{web_accessible_path}'
         md_content_for_html = md_content_for_html.replace(search_string, replace_string)
+    # 【增加日志】在转换前打印Markdown内容的片段
+    print("\n" + "="*20 + " [Markdown Conversion Log] " + "="*20)
+    print("--- Markdown content snippet BEFORE conversion ---")
+    # 为了避免日志过长，我们只打印前1000个字符
+    print(md_content_for_html[:1000] + "...")
+    print("-" * 50)
 
-    html_for_frontend = markdown2.markdown(md_content_for_html, extras=["fenced-code-blocks", "tables"])
+    html_for_frontend = markdown.markdown(
+        md_content_for_html,
+        extensions=[
+            'tables',          # 启用表格
+            'fenced_code',     # 启用代码块
+            'nl2br',           # 将换行符转换成 <br>
+            'pymdownx.arithmatex' # 启用数学公式
+        ],
+        extension_configs={
+            'pymdownx.arithmatex': {
+                'generic': True
+            }
+        }
+    )
+        # 【增加日志】在转换后打印HTML内容的片段
+    print("--- HTML content snippet AFTER conversion by markdown2 ---")
+    print(html_for_frontend[:1000] + "...")
+    print("="*67 + "\n")
+    
     html_out_path = os.path.join(doc_dir, html_filename)
     with open(html_out_path, 'w', encoding='utf-8') as f:
         f.write(html_for_frontend)
@@ -425,6 +449,20 @@ def chat(req: ChatRequest):
         is_first_turn = len(req.messages) == 1
         response_payload = {}
         ai_response_text = ""
+        ai_response_html = markdown.markdown(
+            ai_response_text,
+            extensions=[
+                'tables',          # 启用表格
+                'fenced_code',     # 启用代码块
+                'nl2br',           # 将换行符转换成 <br>
+                'pymdownx.arithmatex' # 启用数学公式
+            ],
+            extension_configs={
+                'pymdownx.arithmatex': {
+                    'generic': True
+                }
+            }
+        )
 
         if is_first_turn:
             print("--- [聊天逻辑] 检测到为首次提问，正在构建完整上下文。 ---")
@@ -506,6 +544,7 @@ def chat(req: ChatRequest):
             response_payload = {
                 "role": "assistant", 
                 "text": ai_response_text, 
+                "htmlText": ai_response_html, # Add the rendered HTML
                 "timestamp": time.time(),
                 "first_user_message_override": prompt_for_model 
             }
@@ -541,6 +580,7 @@ def chat(req: ChatRequest):
             response_payload = {
                 "role": "assistant", 
                 "text": ai_response_text, 
+                "htmlText": ai_response_html, # Add the rendered HTML
                 "timestamp": time.time()
             }
 
