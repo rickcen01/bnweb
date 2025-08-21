@@ -50,6 +50,7 @@ class Message(BaseModel):
     text: str
     timestamp: float
     displayText: Optional[str] = None
+    htmlText: Optional[str] = None  # <--- 在这里添加这一行
 
 class CanvasPosition(BaseModel):
     x: float

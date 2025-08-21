@@ -7,12 +7,20 @@ const API = {
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Upload failed');
+    }
     return res.json();
   },
   uploadPdf: async (file) => {
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/upload-pdf', { method: 'POST', body: form });
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'PDF processing failed');
+    }
     return res.json();
   },
   listNodes: async (docId) => fetch(`/api/nodes/${encodeURIComponent(docId)}`).then(r => r.json()),
@@ -74,7 +82,36 @@ const els = {
   chatHistorySelect: document.getElementById('chatHistorySelect'),
   newChatBtn: document.getElementById('newChatBtn'),
   saveNodeFromSidebarBtn: document.querySelector('#sidebarChatInstance .save-node'),
+  // 【新增】遮罩层元素
+  processingOverlay: document.getElementById('processingOverlay'),
+  processingText: document.getElementById('processingText'),
 };
+
+// 【新增】显示/隐藏遮罩层的辅助函数
+function showProcessingOverlay(text) {
+  els.processingText.textContent = text;
+  els.processingOverlay.classList.remove('hidden');
+}
+
+function hideProcessingOverlay() {
+  els.processingOverlay.classList.add('hidden');
+}
+
+// 【新增】显示/隐藏AI思考动画的辅助函数
+function showThinkingIndicator(messagesContainer) {
+  const thinkingEl = document.createElement('div');
+  thinkingEl.className = 'm assistant thinking';
+  thinkingEl.innerHTML = '<div class="dot-flashing"></div>';
+  messagesContainer.appendChild(thinkingEl);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  return thinkingEl;
+}
+
+function hideThinkingIndicator(thinkingEl) {
+  if (thinkingEl && thinkingEl.parentNode) {
+    thinkingEl.parentNode.removeChild(thinkingEl);
+  }
+}
 
 function setTransform() {
   els.canvas.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
@@ -169,7 +206,7 @@ function clearElementSelection() {
 function annotateAtoms() {
   state.elementIdCounter = 0;
   clearElementSelection();
-  const selector = 'p, img, table, thead, tbody, tr, pre, h1, h2, h3, h4, h5, h6, li, blockquote, code, figure, figcaption, math, svg';
+  const selector = 'p, img, table, thead, tbody, tr, pre, h1, h2, h3, h4, h5, h6, li, blockquote, code, figure, figcaption, math, svg, mjx-container';
   const nodes = els.docHtml.querySelectorAll(selector);
   nodes.forEach((n) => {
     n.classList.add('atom');
@@ -234,6 +271,7 @@ function openMicroChat(atomEl) {
   const discardBtn = box.querySelector('.discard');
   let conversation = [];
 
+  // 【修改】send函数，增加思考动画
   async function send() {
     const text = input.value.trim(); if (!text) return;
     input.value = '';
@@ -242,6 +280,7 @@ function openMicroChat(atomEl) {
     const currentConversationLength = conversation.length;
 
     await renderMessages(messagesEl, conversation);
+    const thinkingIndicator = showThinkingIndicator(messagesEl);
     
     const payload = {
       document_id: state.documentId,
@@ -265,9 +304,10 @@ function openMicroChat(atomEl) {
       }
 
       conversation.push({ role: res.role || 'assistant', text: res.text, htmlText: res.htmlText, timestamp: res.timestamp || Date.now() });
-      await renderMessages(messagesEl, conversation);
     } catch (err) {
       conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
+    } finally {
+      hideThinkingIndicator(thinkingIndicator);
       await renderMessages(messagesEl, conversation);
     }
   }
@@ -296,28 +336,15 @@ async function renderMessages(container, messages) {
     const div = document.createElement('div');
     div.className = `m ${m.role}`;
     
-    // 【修改】核心逻辑变更：优先使用服务端渲染好的HTML
     if (m.role === 'assistant' && m.htmlText) {
-      // 如果消息是来自助手并且包含了htmlText，直接使用它
       div.innerHTML = m.htmlText;
     } else {
-      // 否则，对于用户消息或旧的兼容消息，只显示纯文本
       div.textContent = m.displayText || m.text;
     }
-
-    /* 
-    // 【删除或注释掉】旧的客户端渲染逻辑
-    if (m.role === 'assistant' && window.marked) {
-      div.innerHTML = marked.parse(m.text, { breaks: true });
-    } else {
-      div.textContent = m.displayText || m.text;
-    }
-    */
 
     container.appendChild(div);
   }
   
-  // MathJax调用部分保持不变，它现在会处理服务端渲染好的HTML中的公式
   if (window.MathJax && window.MathJax.typesetPromise) {
     try {
       await window.MathJax.typesetPromise([container]);
@@ -430,7 +457,6 @@ function redrawWires() {
 }
 
 async function openNodeConversation(node) {
-  // 移除 closeAllMicroChats(); 这一行，以允许同时展开多个知识节点。
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
   const nodeEl = document.querySelector(`.node[data-node-id="${node.node_id}"]`);
@@ -447,21 +473,11 @@ async function openNodeConversation(node) {
   const messagesEl = box.querySelector('.messages');
   const input = box.querySelector('input');
   const sendBtn = box.querySelector('.send');
-  // 【增加日志】确认DOM操作和渲染的顺序
-  console.log(`[Node Log - ${node.node_id}] Appending chat box to canvas BEFORE rendering messages.`);
   els.canvas.appendChild(box);
   
-  console.log(`[Node Log - ${node.node_id}] Calling renderMessages, which will trigger MathJax.`);
-  await renderMessages(messagesEl, node.conversation_log || []);
-  console.log(`[Node Log - ${node.node_id}] renderMessages has completed.`);
-
-  // 关键改动(1)：必须先将对话框添加到页面中。
-  // 这能确保 MathJax 在渲染公式时可以正确计算其尺寸。
-  els.canvas.appendChild(box);
-  
-  // 关键改动(2)：等待消息和公式渲染完成。
   await renderMessages(messagesEl, node.conversation_log || []);
 
+  // 【修改】send函数，增加思考动画
   const send = async () => {
       const text = input.value.trim();
       if (!text) return;
@@ -470,6 +486,7 @@ async function openNodeConversation(node) {
       node.conversation_log.push({ role: 'user', text, displayText: text, timestamp: Date.now() });
       const currentConversationLength = node.conversation_log.length;
       await renderMessages(messagesEl, node.conversation_log);
+      const thinkingIndicator = showThinkingIndicator(messagesEl);
 
       const payload = {
           document_id: state.documentId,
@@ -497,10 +514,11 @@ async function openNodeConversation(node) {
 
           node.conversation_log.push({ role: res.role || 'assistant', text: res.text, htmlText: res.htmlText, timestamp: res.timestamp || Date.now() });
           await API.saveNode(state.documentId, node);
-          await renderMessages(messagesEl, node.conversation_log);
       } catch (err) {
           node.conversation_log.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
-          await renderMessages(messagesEl, node.conversation_log);
+      } finally {
+        hideThinkingIndicator(thinkingIndicator);
+        await renderMessages(messagesEl, node.conversation_log);
       }
   };
 
@@ -528,9 +546,6 @@ async function openNodeConversation(node) {
       } catch {}
     }
   });
-
-  // 此行已移动到渲染消息之前，此处无需重复。
-  // els.canvas.appendChild(box);
 }
 
 async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
@@ -554,29 +569,25 @@ async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
   els.sidebarResizer.classList.remove('hidden');
 }
 
-
-// --- 修改 2: 增强 loadDocument 函数的日志 ---
 async function loadDocument(id) {
   state.documentId = id;
   closeAllMicroChats();
   const html = await API.getDocHtml(id).catch(() => '<p style="color:#a00">无法加载文档</p>');
   els.docHtml.innerHTML = html;
-  annotateAtoms();
+  // annotateAtoms();
 
-  // 【增加日志】为文档主体调用MathJax
   if (window.MathJax && window.MathJax.typesetPromise) {
     console.log('[MathJax Log] Attempting to typeset formulas in the main document content.');
     try {
       await window.MathJax.typesetPromise([els.docHtml]);
       console.log('[MathJax Log] Typesetting completed successfully for the main document.');
     } catch (err) {
-      // 原来的空 catch 会隐藏错误，现在我们把它打印出来
       console.error('[MathJax Error] An error occurred during main document typesetting:', err);
     }
   } else {
     console.warn('[MathJax Log] MathJax library is not available.');
   }
-
+  annotateAtoms();
   await loadNodes(id);
   await loadChats(id);
 }
@@ -610,20 +621,40 @@ async function refreshDocs() {
   }
 }
 
+// 【修改】initUI函数，为文件上传增加遮罩层
 function initUI() {
   els.select.addEventListener('change', () => loadDocument(els.select.value));
+  
   els.upload.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    await API.upload(f).catch(() => {});
-    await refreshDocs();
+    showProcessingOverlay('正在上传 HTML...');
+    try {
+      await API.upload(f);
+      await refreshDocs();
+    } catch (err) {
+      console.error("HTML upload failed", err);
+      alert("HTML 上传失败: " + err.message);
+    } finally {
+      hideProcessingOverlay();
+    }
   });
+
   els.uploadPdf.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const res = await API.uploadPdf(f).catch(() => {});
-    await refreshDocs();
-    if (res && res.document_id) {
-      els.select.value = res.document_id; 
-      await loadDocument(res.document_id);
+    showProcessingOverlay('正在解析 PDF，这可能需要一些时间...');
+    let res;
+    try {
+      res = await API.uploadPdf(f);
+      await refreshDocs();
+      if (res && res.document_id) {
+        els.select.value = res.document_id; 
+        await loadDocument(res.document_id);
+      }
+    } catch (err) {
+      console.error("PDF upload failed", err);
+      alert("PDF 处理失败: " + err.message);
+    } finally {
+      hideProcessingOverlay();
     }
   });
 }
@@ -698,6 +729,7 @@ async function createNewChat() {
     await setActiveChat(newChat.id);
 }
 
+// 【修改】initSidebarChat函数，增加思考动画
 function initSidebarChat() {
   const send = async () => {
       const text = els.sidebarInput.value.trim();
@@ -714,6 +746,7 @@ function initSidebarChat() {
       state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, displayText: userMessageText, timestamp: Date.now() });
       const currentConversationLength = state.sidebarContext.conversation.length;
       await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      const thinkingIndicator = showThinkingIndicator(els.sidebarMessages);
 
       const payload = {
           document_id: state.documentId,
@@ -747,7 +780,6 @@ function initSidebarChat() {
       }
 
       clearElementSelection();
-
       console.log("[DEBUG] Sending from Sidebar. Payload:", JSON.stringify(payload, null, 2));
 
       try {
@@ -770,11 +802,11 @@ function initSidebarChat() {
                   await API.saveChat(state.documentId, activeChat);
               }
           }
-          await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
-
       } catch (err) {
           state.sidebarContext.conversation.push({ role: 'assistant', text: '聊天服务不可用。', timestamp: Date.now() });
-          await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      } finally {
+        hideThinkingIndicator(thinkingIndicator);
+        await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
       }
   };
 

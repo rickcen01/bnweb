@@ -260,3 +260,85 @@ label.upload input { display: none; }
 .wire { stroke: rgba(100,100,255,0.8); stroke-width: 3; fill: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3)); }
 .wire:hover { stroke: rgba(100,100,255,1.0); stroke-width: 4; }
 .zoom { color: #666; }
+
+/* ++ Processing Overlay ++ */
+#processingOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+#processingOverlay.hidden {
+    display: none;
+}
+#processingText {
+    margin-top: 20px;
+    font-size: 1.1em;
+    color: #333;
+    font-weight: 500;
+}
+.spinner {
+    width: 56px;
+    height: 56px;
+    border: 7px solid #f3f3f3;
+    border-top: 7px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ++ AI Thinking Indicator ++ */
+.m.assistant.thinking {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+}
+.dot-flashing {
+    position: relative;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: #999;
+    color: #999;
+    animation: dotFlashing 1s infinite linear alternate;
+    animation-delay: .5s;
+}
+.dot-flashing::before, .dot-flashing::after {
+    content: '';
+    display: inline-block;
+    position: absolute;
+    top: 0;
+}
+.dot-flashing::before {
+    left: -15px;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: #999;
+    color: #999;
+    animation: dotFlashing 1s infinite alternate;
+    animation-delay: 0s;
+}
+.dot-flashing::after {
+    left: 15px;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: #999;
+    color: #999;
+    animation: dotFlashing 1s infinite alternate;
+    animation-delay: 1s;
+}
+@keyframes dotFlashing {
+    0% { background-color: #999; }
+    50%, 100% { background-color: #e0e0e0; }
+}
