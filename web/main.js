@@ -40,6 +40,7 @@ const state = {
   panX: 0,
   panY: 0,
   documentId: null,
+  documents: [], 
   nodes: [],
   elementIdCounter: 0,
   selectedElements: [],
@@ -82,12 +83,15 @@ const els = {
   chatHistorySelect: document.getElementById('chatHistorySelect'),
   newChatBtn: document.getElementById('newChatBtn'),
   saveNodeFromSidebarBtn: document.querySelector('#sidebarChatInstance .save-node'),
-  // 【新增】遮罩层元素
   processingOverlay: document.getElementById('processingOverlay'),
   processingText: document.getElementById('processingText'),
+  contextSelectorContainer: document.getElementById('contextSelectorContainer'),
+  contextRangeSelect: document.getElementById('contextRangeSelect'),
+  customRangeInputs: document.getElementById('customRangeInputs'),
+  customStartChar: document.getElementById('customStartChar'),
+  customEndChar: document.getElementById('customEndChar'),
 };
 
-// 【新增】显示/隐藏遮罩层的辅助函数
 function showProcessingOverlay(text) {
   els.processingText.textContent = text;
   els.processingOverlay.classList.remove('hidden');
@@ -97,7 +101,6 @@ function hideProcessingOverlay() {
   els.processingOverlay.classList.add('hidden');
 }
 
-// 【新增】显示/隐藏AI思考动画的辅助函数
 function showThinkingIndicator(messagesContainer) {
   const thinkingEl = document.createElement('div');
   thinkingEl.className = 'm assistant thinking';
@@ -271,7 +274,6 @@ function openMicroChat(atomEl) {
   const discardBtn = box.querySelector('.discard');
   let conversation = [];
 
-  // 【修改】send函数，增加思考动画
   async function send() {
     const text = input.value.trim(); if (!text) return;
     input.value = '';
@@ -477,7 +479,6 @@ async function openNodeConversation(node) {
   
   await renderMessages(messagesEl, node.conversation_log || []);
 
-  // 【修改】send函数，增加思考动画
   const send = async () => {
       const text = input.value.trim();
       if (!text) return;
@@ -562,6 +563,8 @@ async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
   els.resetSidebarBtn.classList.remove('hidden');
   els.sidebarChatSelector.classList.add('hidden');
   els.saveNodeFromSidebarBtn.classList.remove('hidden');
+  els.contextSelectorContainer.classList.add('hidden');
+  els.customRangeInputs.classList.add('hidden');
   
   await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
   
@@ -569,13 +572,50 @@ async function appendChatToSidebar(atomEl, conversation, nodeId = null) {
   els.sidebarResizer.classList.remove('hidden');
 }
 
+function setupContextSelector(totalChars) {
+    const CHUNK_SIZE = 8000;
+    els.contextRangeSelect.innerHTML = '';
+    
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = `全文 (${totalChars}字)`;
+    els.contextRangeSelect.appendChild(allOpt);
+
+    for (let i = 0; i < totalChars; i += CHUNK_SIZE) {
+        const start = i;
+        const end = Math.min(i + CHUNK_SIZE, totalChars);
+        const opt = document.createElement('option');
+        opt.value = `${start}-${end}`;
+        opt.textContent = `字 ${start + 1} - ${end}`;
+        els.contextRangeSelect.appendChild(opt);
+    }
+
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = '自定义范围...';
+    els.contextRangeSelect.appendChild(customOpt);
+
+    els.customStartChar.max = totalChars -1;
+    els.customEndChar.max = totalChars;
+    
+    els.contextSelectorContainer.classList.remove('hidden');
+}
+
 async function loadDocument(id) {
   state.documentId = id;
   closeAllMicroChats();
+  
+  const currentDoc = state.documents.find(d => d.document_id === id);
+  if (currentDoc && currentDoc.total_chars > 0) {
+      setupContextSelector(currentDoc.total_chars);
+  } else {
+      els.contextSelectorContainer.classList.add('hidden');
+  }
+  els.customRangeInputs.classList.add('hidden');
+
   const html = await API.getDocHtml(id).catch(() => '<p style="color:#a00">无法加载文档</p>');
   els.docHtml.innerHTML = html;
-  // annotateAtoms();
-
+  
   if (window.MathJax && window.MathJax.typesetPromise) {
     console.log('[MathJax Log] Attempting to typeset formulas in the main document content.');
     try {
@@ -606,6 +646,7 @@ async function loadNodes(id) {
 
 async function refreshDocs() {
   const docs = await API.listDocs().catch(() => []);
+  state.documents = docs; 
   els.select.innerHTML = '';
   docs.forEach(d => {
     const opt = document.createElement('option');
@@ -621,7 +662,6 @@ async function refreshDocs() {
   }
 }
 
-// 【修改】initUI函数，为文件上传增加遮罩层
 function initUI() {
   els.select.addEventListener('change', () => loadDocument(els.select.value));
   
@@ -650,12 +690,21 @@ function initUI() {
         els.select.value = res.document_id; 
         await loadDocument(res.document_id);
       }
-    } catch (err) {
+    } catch (err)
+ {
       console.error("PDF upload failed", err);
       alert("PDF 处理失败: " + err.message);
     } finally {
       hideProcessingOverlay();
     }
+  });
+  
+  els.contextRangeSelect.addEventListener('change', (e) => {
+      if (e.target.value === 'custom') {
+          els.customRangeInputs.classList.remove('hidden');
+      } else {
+          els.customRangeInputs.classList.add('hidden');
+      }
   });
 }
 
@@ -672,6 +721,13 @@ async function resetSidebarToDocumentMode() {
     els.resetSidebarBtn.classList.add('hidden');
     els.sidebarChatSelector.classList.remove('hidden');
     els.saveNodeFromSidebarBtn.classList.add('hidden');
+    
+    const currentDoc = state.documents.find(d => d.document_id === state.documentId);
+    if (currentDoc && currentDoc.total_chars > 0) {
+        els.contextSelectorContainer.classList.remove('hidden');
+    }
+    els.customRangeInputs.classList.add('hidden');
+    els.contextRangeSelect.value = 'all';
     
     const activeChat = state.chats.find(c => c.id === state.activeChatId);
     state.sidebarContext.conversation = activeChat ? activeChat.messages : [];
@@ -729,7 +785,6 @@ async function createNewChat() {
     await setActiveChat(newChat.id);
 }
 
-// 【修改】initSidebarChat函数，增加思考动画
 function initSidebarChat() {
   const send = async () => {
       const text = els.sidebarInput.value.trim();
@@ -745,14 +800,40 @@ function initSidebarChat() {
       
       state.sidebarContext.conversation.push({ role: 'user', text: userMessageText, displayText: userMessageText, timestamp: Date.now() });
       const currentConversationLength = state.sidebarContext.conversation.length;
-      await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
-      const thinkingIndicator = showThinkingIndicator(els.sidebarMessages);
-
+      
       const payload = {
           document_id: state.documentId,
           messages: state.sidebarContext.conversation,
       };
+
+      // 【关键修改】移除 isFirstTurn 判断，确保每次都检查上下文范围
+      if (state.sidebarContext.mode === 'document') {
+          const rangeSelection = els.contextRangeSelect.value;
+          
+          if (rangeSelection === 'custom') {
+              const start = parseInt(els.customStartChar.value, 10);
+              const end = parseInt(els.customEndChar.value, 10);
+              const currentDoc = state.documents.find(d => d.document_id === state.documentId);
+              const totalChars = currentDoc ? currentDoc.total_chars : Infinity;
+
+              if (isNaN(start) || isNaN(end) || start < 0 || end <= start || end > totalChars) {
+                  alert(`无效的自定义范围！\n\n请确保：\n- 起始和结束都已填写\n- 结束字数 > 起始字数\n- 范围在文档总字数 (${totalChars}) 之内`);
+                  state.sidebarContext.conversation.pop();
+                  return;
+              }
+              payload.char_start = start;
+              payload.char_end = end;
+
+          } else if (rangeSelection !== 'all') {
+              const [start, end] = rangeSelection.split('-').map(Number);
+              payload.char_start = start;
+              payload.char_end = end;
+          }
+      }
       
+      await renderMessages(els.sidebarMessages, state.sidebarContext.conversation);
+      const thinkingIndicator = showThinkingIndicator(els.sidebarMessages);
+
       let imageUrl = null;
       if (state.selectedElements.length > 0) {
           payload.selected_elements_html = state.selectedElements.map(el => el.html);

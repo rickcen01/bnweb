@@ -36,7 +36,6 @@ label.upload input { display: none; }
     flex-shrink: 0;
 }
 
-/* 【新增】对话历史选择器样式 */
 #sidebarTitle { flex-shrink: 0; }
 #sidebarChatSelector { display: flex; align-items: center; gap: 4px; overflow: hidden; flex: 1; }
 #sidebarChatSelector.hidden { display: none; }
@@ -117,7 +116,6 @@ label.upload input { display: none; }
 
 .atom { outline: 0px solid transparent; position: relative; }
 .atom.hover { outline: 2px solid rgba(0, 132, 255, 0.3); border-radius: 4px; }
-/* 【新增】选中元素的持久化高亮样式 */
 .atom.selected {
   outline: 2px solid #007bff;
   background-color: rgba(0, 123, 255, 0.1);
@@ -190,8 +188,52 @@ label.upload input { display: none; }
 .m.assistant code { background-color: rgba(0,0,0,0.06); padding: 2px 5px; border-radius: 4px; font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace; }
 .m.assistant pre code { background: transparent; padding: 0; }
 
-/* 【修改】侧边栏输入区域的整体样式 */
-.micro-chat .input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; flex-shrink: 0; align-items: flex-start; }
+.context-selector-container {
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+    font-size: 13px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column; /* 【修改】改为纵向排列 */
+    gap: 8px;
+}
+.context-selector-container.hidden {
+    display: none;
+}
+#contextRangeSelect {
+    width: 100%; /* 【修改】占满整行 */
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    padding: 3px 4px;
+    background-color: #fff;
+}
+/* 【新增】自定义范围输入框样式 */
+.custom-range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+}
+.custom-range-inputs.hidden {
+    display: none;
+}
+.custom-range-inputs input {
+    width: 100%;
+    padding: 3px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    /* 隐藏number input的上下箭头 */
+    -moz-appearance: textfield;
+}
+.custom-range-inputs input::-webkit-outer-spin-button,
+.custom-range-inputs input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+
+.micro-chat .input { display: flex; gap: 8px; padding: 10px; flex-shrink: 0; align-items: flex-start; }
 #sidebarInputWrapper {
     flex: 1;
     border: 1px solid #ddd;
@@ -241,7 +283,6 @@ label.upload input { display: none; }
 .micro-chat .input input:focus { 
     border-color: transparent; 
 }
-/* 恢复非侧边栏输入框的样式 */
 .micro-chat:not(.sidebar) .input input {
     flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 18px; outline: none; transition: border-color 0.2s;
 }
@@ -261,7 +302,6 @@ label.upload input { display: none; }
 .wire:hover { stroke: rgba(100,100,255,1.0); stroke-width: 4; }
 .zoom { color: #666; }
 
-/* ++ Processing Overlay ++ */
 #processingOverlay {
     position: fixed;
     inset: 0;
@@ -296,7 +336,6 @@ label.upload input { display: none; }
     100% { transform: rotate(360deg); }
 }
 
-/* ++ AI Thinking Indicator ++ */
 .m.assistant.thinking {
     padding: 12px 16px;
     display: flex;

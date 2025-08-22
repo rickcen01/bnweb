@@ -50,7 +50,7 @@ class Message(BaseModel):
     text: str
     timestamp: float
     displayText: Optional[str] = None
-    htmlText: Optional[str] = None  # <--- 在这里添加这一行
+    htmlText: Optional[str] = None
 
 class CanvasPosition(BaseModel):
     x: float
@@ -107,9 +107,20 @@ def list_documents() -> List[Dict[str, Any]]:
     for fname in os.listdir(DOCS_DIR):
         path = os.path.join(DOCS_DIR, fname)
         if os.path.isdir(path):
+            meta_path = os.path.join(path, 'meta.json')
+            total_chars = 0
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, 'r', encoding='utf-8') as f:
+                        meta_data = json.load(f)
+                        total_chars = meta_data.get('total_chars', 0)
+                except Exception:
+                    total_chars = 0
+            
             docs.append({
                 'document_id': fname,
                 'title': fname,
+                'total_chars': total_chars,
             })
     return docs
 
@@ -149,6 +160,7 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
         raise HTTPException(500, detail="MinerU not available in server environment")
 
     archive_zip_path = None
+    clean_md_content = ""
     try:
         md_content_from_mineru, md_text, archive_zip_path, preview_pdf_path = await to_markdown(
             tmp_pdf_path, end_pages=max_pages, is_ocr=False, formula_enable=True,
@@ -210,33 +222,34 @@ async def upload_pdf(file: UploadFile = File(...), max_pages: int = 200, backend
                     target_images_path = os.path.join(doc_dir, 'images')
                     shutil.move(source_media_path, target_images_path)
 
+    if not clean_md_content:
+        clean_md_content = md_content_from_mineru
+        md_for_ai_out_path = os.path.join(doc_dir, md_filename)
+        with open(md_for_ai_out_path, 'w', encoding='utf-8') as f:
+            f.write(clean_md_content)
+
+    total_chars = len(clean_md_content)
+    meta_path = os.path.join(doc_dir, 'meta.json')
+    with open(meta_path, 'w', encoding='utf-8') as f:
+        json.dump({'total_chars': total_chars}, f)
+
+
     if found_media_dir_name:
         web_accessible_path = f"/api/documents_assets/{doc_foldername}/images/"
         search_string = f'src="{found_media_dir_name}/'
         replace_string = f'src="{web_accessible_path}'
         md_content_for_html = md_content_for_html.replace(search_string, replace_string)
-    # 【增加日志】在转换前打印Markdown内容的片段
+
     print("\n" + "="*20 + " [Markdown Conversion Log] " + "="*20)
     print("--- Markdown content snippet BEFORE conversion ---")
-    # 为了避免日志过长，我们只打印前1000个字符
     print(md_content_for_html[:1000] + "...")
     print("-" * 50)
 
     html_for_frontend = markdown.markdown(
         md_content_for_html,
-        extensions=[
-            'tables',          # 启用表格
-            'fenced_code',     # 启用代码块
-            'nl2br',           # 将换行符转换成 <br>
-            'pymdownx.arithmatex' # 启用数学公式
-        ],
-        extension_configs={
-            'pymdownx.arithmatex': {
-                'generic': True
-            }
-        }
+        extensions=[ 'tables', 'fenced_code', 'nl2br', 'pymdownx.arithmatex' ],
+        extension_configs={ 'pymdownx.arithmatex': { 'generic': True } }
     )
-        # 【增加日志】在转换后打印HTML内容的片段
     print("--- HTML content snippet AFTER conversion by markdown2 ---")
     print(html_for_frontend[:1000] + "...")
     print("="*67 + "\n")
@@ -340,15 +353,14 @@ class ChatRequest(BaseModel):
     source_element_html: Optional[str] = None
     selected_elements_html: Optional[List[str]] = None
     image_url: Optional[str] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
 
 
 GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 
 def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]:
-    """
-    根据给定的URL获取图片，并调用AI模型进行详细分析。
-    """
     image_bytes = None
     mime_type = 'image/png'
     
@@ -386,7 +398,6 @@ def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]
 
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         
-        # --- [新增] 打印发送给AI的图片分析请求 ---
         print("\n" + "="*20 + " [AI Image Analysis Request] " + "="*20)
         print(f"--- Model: gemini-2.5-flash")
         print(f"--- Mime Type: {mime_type}")
@@ -398,7 +409,6 @@ def analyze_image_with_ai(client: genai.Client, image_url: str) -> Optional[str]
             contents=[image_part, image_analysis_prompt]
         )
 
-        # --- [新增] 打印从AI收到的完整图片分析响应 ---
         print("\n" + "="*20 + " [AI Image Analysis Response] " + "="*20)
         print("--- Raw Response Object ---")
         print(response)
@@ -419,9 +429,7 @@ def chat(req: ChatRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No user message found")
     
-    # --- [新增] 打印从前端收到的完整请求体 ---
     print("\n" + "#"*25 + " [New Chat API Request Received] " + "#"*25)
-    # 使用 Pydantic 的 model_dump_json 方法来格式化输出
     print(req.model_dump_json(indent=2))
     print("#"*81 + "\n")
 
@@ -460,85 +468,64 @@ def chat(req: ChatRequest):
             full_doc_md = ""
             if os.path.exists(md_filepath):
                 with open(md_filepath, 'r', encoding='utf-8') as f:
-                    full_doc_md = f.read()
+                    content = f.read()
+                    if req.char_start is not None and req.char_end is not None:
+                        print(f"--- [上下文控制] 提取文档内容范围: {req.char_start} -> {req.char_end} ---")
+                        sliced_content = content[req.char_start:req.char_end]
+                        full_doc_md = f"[注意：以下仅为文档的一部分内容，从第 {req.char_start} 字到第 {req.char_end} 字]\n\n{sliced_content}"
+                    else:
+                        print("--- [上下文控制] 使用完整文档内容 ---")
+                        full_doc_md = content
             else:
                 full_doc_md = "[无法找到完整的Markdown文档上下文]"
                 print(f"警告: 在路径 {md_filepath} 未找到对应的Markdown文件")
 
-            # 定义系统提示词
             system_prompt = """你是一个教育与知识解释，答题与解答助手，擅长解析文档内容并结合上下文回答问题。
 
             我会给你三部分信息：
-            1. 文档全文的 Markdown 内容（可能包含文字、公式、图片、表格）
+            1. 文档全文或选定部分的 Markdown 内容（可能包含文字、公式、图片、表格）
             2. 用户在文档中选中的“聚焦内容”
             3. 用户提出的问题
 
             你的任务是：
             - 优先基于“聚焦内容”回答问题，如果聚焦内容是图片，就优先基于图片内容描述回答问题
-            - 结合全文内容补充必要的上下文信息
+            - 结合你收到的文档内容补充必要的上下文信息
             - 如果问题需要推导或分析，分步骤展示推理过程
             - 如果涉及回答问题，请结合你自己的观点和文档信息解答
             - 如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯
             - 如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格
             """
 
-            # 构造上下文 parts
             context_parts = [system_prompt]
 
-            # 图片描述（如果有）
             if image_description:
-                context_parts.extend([
-                    "\n---",
-                    "[图片内容描述]",
-                    "这是关于用户当前正在查看的图片的一份详细文字描述，结合它来回答问题。",
-                    image_description
-                ])
+                context_parts.extend(["\n---","[图片内容描述]","这是关于用户当前正在查看的图片的一份详细文字描述，结合它来回答问题。",image_description])
 
-            # 全文 Markdown
-            context_parts.extend([
-                "\n---",
-                "[全文Markdown内容]",
-                full_doc_md
-            ])
+            context_parts.extend(["\n---","[文档内容]",full_doc_md])
 
-            # 聚焦内容（如果有）
             if focused_content_md:
-                context_parts.extend([
-                    "\n---",
-                    "[聚焦内容]",
-                    focused_content_md
-                ])
+                context_parts.extend(["\n---","[聚焦内容]",focused_content_md])
 
-            # 拼接成最终提示词
             initial_context_string = "\n".join(context_parts)
             user_question = req.messages[0].text
-
             prompt_for_model = f"{initial_context_string}\n\n---\n\n[用户问题]\n{user_question}\n\n请结合以上信息，给出清晰、准确且结构化的回答。"
 
-            
             print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
 
             response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt_for_model])
             
-            # --- [新增] 打印从AI收到的完整响应 (首次提问) ---
             print("\n" + "="*20 + " [AI Chat Response (First Turn)] " + "="*20)
             print("--- Raw Response Object ---")
             print(response)
             print("="*68 + "\n")
 
             ai_response_text = response.text
-            
-            # 修复第3步：解开被代码块包裹的<img>标签
             ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
-
-            # 修复第1步：在获取AI回复后，再将Markdown转换为HTML
             ai_response_html = markdown.markdown(
                 ai_response_text,
                 extensions=['tables', 'fenced_code', 'nl2br', 'pymdownx.arithmatex'],
                 extension_configs={'pymdownx.arithmatex': {'generic': True}}
             )
-            
-            # 修复第2步：修正HTML中的图片路径
             correct_image_path_prefix = f'src="/api/documents_assets/{req.document_id}/images/'
             ai_response_html = ai_response_html.replace('src="images/', correct_image_path_prefix)
 
@@ -554,15 +541,29 @@ def chat(req: ChatRequest):
             history_for_model = [{'role': 'model' if msg.role == 'assistant' else 'user', 'parts': [{'text': msg.text}]} for msg in req.messages[:-1]]
             
             last_user_question = req.messages[-1].text
-            prompt_for_model = last_user_question
+            
+            # 【关键修改】为后续提问注入新的文档或元素上下文
+            new_context_prompt_part = ""
+            
             if focused_content_md:
-                prompt_for_model = (f"请参考我新选中的内容，并结合我们之前的完整对话，回答我的问题。\n\n[新聚焦内容]\n{focused_content_md}\n\n---\n我的问题是：{last_user_question}")
+                new_context_prompt_part = f"请参考我新选中的内容，并结合我们之前的完整对话来回答。\n\n[新聚焦内容]\n{focused_content_md}\n\n---"
+            else:
+                md_filename = f"{req.document_id}.md"
+                md_filepath = os.path.join(DOCS_DIR, req.document_id, md_filename)
+                if req.char_start is not None and req.char_end is not None and os.path.exists(md_filepath):
+                    print(f"--- [上下文控制] 后续提问检测到新范围: {req.char_start} -> {req.char_end} ---")
+                    with open(md_filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        sliced_content = content[req.char_start:req.char_end]
+                        new_context_prompt_part = f"请参考我新选中的文档内容（字 {req.char_start} 至 {req.char_end}）并结合我们之前的对话来回答。\n\n[新文档上下文]\n{sliced_content}\n\n---"
+
+            prompt_for_model = f"{new_context_prompt_part}\n我的问题是：{last_user_question}" if new_context_prompt_part else last_user_question
             
             print("\n" + "="*50)
             print("====== V V V ====== SENDING TO GEMINI API ====== V V V ======")
             print(">>> CONVERSATION HISTORY (for model context):")
             print(json.dumps(history_for_model, ensure_ascii=False, indent=2))
-            print("\n>>> CURRENT USER PROMPT:")
+            print("\n>>> CURRENT USER PROMPT (with new context if any):")
             print(prompt_for_model)
             print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
             print("="*50 + "\n")
@@ -570,25 +571,18 @@ def chat(req: ChatRequest):
             chat_session = client.chats.create(model="gemini-2.5-flash", history=history_for_model)
             response = chat_session.send_message(prompt_for_model)
 
-            # --- [新增] 打印从AI收到的完整响应 (后续提问) ---
             print("\n" + "="*20 + " [AI Chat Response (Follow-up)] " + "="*20)
             print("--- Raw Response Object ---")
             print(response)
             print("="*69 + "\n")
 
             ai_response_text = response.text
-
-            # 修复第3步：解开被代码块包裹的<img>标签
             ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
-
-            # 修复第1步：在获取AI回复后，再将Markdown转换为HTML
             ai_response_html = markdown.markdown(
                 ai_response_text,
                 extensions=['tables', 'fenced_code', 'nl2br', 'pymdownx.arithmatex'],
                 extension_configs={'pymdownx.arithmatex': {'generic': True}}
             )
-            
-            # 修复第2步：修正HTML中的图片路径
             correct_image_path_prefix = f'src="/api/documents_assets/{req.document_id}/images/'
             ai_response_html = ai_response_html.replace('src="images/', correct_image_path_prefix)
 

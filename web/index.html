@@ -8,7 +8,7 @@
     <script>
       window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] }, svg: {fontCache: 'global'} };
     </script>
-    <script src="https://cdn.bootcdn.net/ajax/libs/mathjax/3.2.2/es5/tex-svg.js" async></script>    <!-- <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script> -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/mathjax/3.2.2/es5/tex-svg.js" async></script>
   </head>
   <body>
     <div id="topbar">
@@ -45,7 +45,6 @@
       <div id="sidebar" class="hidden">
         <div class="sidebar-header">
           <span id="sidebarTitle">AI 对话</span>
-          <!-- 【新增】对话历史选择器 -->
           <div id="sidebarChatSelector">
             <select id="chatHistorySelect"></select>
             <button id="newChatBtn" title="新建聊天">+</button>
@@ -57,7 +56,16 @@
         <div id="sidebarContent">
             <div class="micro-chat sidebar" id="sidebarChatInstance">
                 <div class="messages"></div>
-                <!-- 【修改】输入框结构，以支持元素标签 -->
+                <div id="contextSelectorContainer" class="context-selector-container hidden">
+                    <label for="contextRangeSelect">文档上下文: </label>
+                    <select id="contextRangeSelect"></select>
+                    <!-- 【新增】自定义范围输入框的容器 -->
+                    <div id="customRangeInputs" class="custom-range-inputs hidden">
+                        <input type="number" id="customStartChar" placeholder="起始字数" min="0">
+                        <span>-</span>
+                        <input type="number" id="customEndChar" placeholder="结束字数" min="1">
+                    </div>
+                </div>
                 <div class="input">
                     <div id="sidebarInputWrapper">
                         <div id="sidebarSelectedElements"></div>
@@ -66,7 +74,6 @@
                     <button class="send">发送</button>
                 </div>
                 <div class="actions">
-                    <!-- 【新增】从侧边栏创建知识节点按钮 -->
                     <button class="save-node hidden">创建知识节点</button>
                     <button class="discard">清空对话</button>
                 </div>
@@ -96,7 +103,6 @@
       </div>
     </template>
     
-    <!-- 【新增】全局处理遮罩层 -->
     <div id="processingOverlay" class="hidden">
       <div class="spinner"></div>
       <p id="processingText"></p>
