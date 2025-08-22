@@ -1,15 +1,49 @@
 /* web/styles.css */
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
-#topbar { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #eee; background: #fff; position: sticky; top: 0; z-index: 10; }
-#topbar .left { display: flex; align-items: center; gap: 8px; }
+
+html { height: 100%; }
+body { 
+    height: 100vh; 
+    margin: 0; 
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; 
+    overflow-x: hidden; 
+    display: flex;
+    flex-direction: column;
+}
+body.drawing-active {
+    overflow: hidden;
+}
+
+#topbar { 
+    height: auto; 
+    min-height: 48px;
+    display: flex; 
+    flex-wrap: wrap; 
+    align-items: center; 
+    justify-content: space-between; 
+    padding: 8px 12px; 
+    border-bottom: 1px solid #eee; 
+    background: #fff; 
+    position: sticky; 
+    top: 0; 
+    z-index: 10; 
+    gap: 8px; 
+    flex-shrink: 0; 
+}
+#topbar .left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #topbar .right { display: flex; align-items: center; gap: 12px; }
 .logo { font-weight: 700; color: #444; margin-right: 8px; }
 label.upload { border: 1px dashed #bbb; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
 label.upload input { display: none; }
 
-#container { position: relative; height: calc(100% - 48px); display: flex; }
+#container { 
+    position: relative; 
+    display: flex; 
+    flex-grow: 1; 
+    overflow: hidden; 
+}
+
 #sidebar { 
     width: 400px;
     min-width: 300px;
@@ -107,21 +141,38 @@ label.upload input { display: none; }
     background: repeating-conic-gradient(#fafafa 0% 25%, #f5f5f5 0% 50%) 50% / 24px 24px; 
 }
 #canvas { position: absolute; transform-origin: 0 0; z-index: 2; }
-#contentFrame { width: 920px; margin-left: 50%; transform: translateX(-50%); background: #fff; box-shadow: 0 4px 30px rgba(0,0,0,0.06); border-radius: 8px; padding: 16px 24px; }
+
+/* 【关键修改】确保内容框架在小屏上能自动缩放 */
+#contentFrame { 
+    max-width: 920px; 
+    width: 100%; /* 这一行至关重要 */
+    margin-left: auto; 
+    margin-right: auto;
+    background: #fff; 
+    box-shadow: 0 4px 30px rgba(0,0,0,0.06); 
+    border-radius: 8px; 
+    padding: 16px 24px; 
+}
+@media (max-width: 480px) {
+    #contentFrame {
+        padding: 12px;
+    }
+}
+
+
 #docHtml { line-height: 1.7; color: #222; }
 
-/* 新增：绘图Canvas样式 */
 #drawingCanvas {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none; /* 默认不响应鼠标事件 */
-    z-index: 3; /* 在文档之上，但在UI元素之下 */
+    pointer-events: none;
+    z-index: 3; 
 }
 #drawingCanvas.active {
-    pointer-events: auto; /* 绘图时响应鼠标事件 */
+    pointer-events: auto;
     cursor: crosshair;
 }
 
@@ -130,13 +181,19 @@ label.upload input { display: none; }
 #docHtml tr:nth-child(even) { background: #fafafa; }
 
 .atom { outline: 0px solid transparent; position: relative; }
-.atom.hover { outline: 2px solid rgba(0, 132, 255, 0.3); border-radius: 4px; }
+.atom.hover, .atom.touch-hover { 
+    outline: 2px solid rgba(0, 132, 255, 0.3); 
+    border-radius: 4px; 
+}
 .atom.selected {
   outline: 2px solid #007bff;
   background-color: rgba(0, 123, 255, 0.1);
 }
 .atom .ask { position: absolute; right: -28px; top: 0; width: 22px; height: 22px; border-radius: 11px; background: rgba(0,0,0,0.6); color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transform: translateY(-4px); transition: all 0.12s ease; cursor: pointer; z-index: 4; }
-.atom.hover .ask { opacity: 1; transform: translateY(0); }
+.atom.hover .ask, .atom.touch-hover .ask { 
+    opacity: 1; 
+    transform: translateY(0); 
+}
 
 .micro-chat { 
     width: 320px;
@@ -209,20 +266,20 @@ label.upload input { display: none; }
     font-size: 13px;
     flex-shrink: 0;
     display: flex;
-    flex-direction: column; /* 【修改】改为纵向排列 */
+    flex-direction: column; 
     gap: 8px;
 }
 .context-selector-container.hidden {
     display: none;
 }
 #contextRangeSelect {
-    width: 100%; /* 【修改】占满整行 */
+    width: 100%; 
     border-radius: 4px;
     border: 1px solid #ccc;
     padding: 3px 4px;
     background-color: #fff;
 }
-/* 【新增】自定义范围输入框样式 */
+
 .custom-range-inputs {
     display: flex;
     align-items: center;
@@ -238,7 +295,6 @@ label.upload input { display: none; }
     border: 1px solid #ccc;
     border-radius: 4px;
     font-size: 13px;
-    /* 隐藏number input的上下箭头 */
     -moz-appearance: textfield;
 }
 .custom-range-inputs input::-webkit-outer-spin-button,
@@ -397,17 +453,20 @@ label.upload input { display: none; }
     50%, 100% { background-color: #e0e0e0; }
 }
 
-/* 新增：笔记工具栏样式 */
 #annotationToolbar {
     position: fixed;
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
+    width: max-content; 
+    max-width: 95vw; 
     background: #ffffff;
     border: 1px solid #e0e0e0;
     border-radius: 12px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     display: flex;
+    flex-wrap: wrap; 
+    justify-content: center; 
     align-items: center;
     padding: 8px;
     gap: 8px;

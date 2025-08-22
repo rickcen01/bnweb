@@ -33,7 +33,6 @@ const API = {
   saveChat: async (docId, chat) => fetch(`/api/chats/${encodeURIComponent(docId)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(chat)
   }).then(r => r.json()),
-  // 新增: 绘图笔记API
   getDrawings: async (docId) => fetch(`/api/drawings/${encodeURIComponent(docId)}`).then(r => r.json()),
   saveDrawings: async (docId, drawings) => fetch(`/api/drawings/${encodeURIComponent(docId)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(drawings)
@@ -57,15 +56,14 @@ const state = {
   },
   chats: [],
   activeChatId: null,
-  // 新增: 绘图状态
   drawing: {
-    activeTool: null, // 'pen', 'highlighter', 'eraser'
+    activeTool: null, 
     color: '#FF0000',
     strokeWidth: 5,
     isDrawing: false,
     paths: [],
     currentPath: null,
-    redoStack: [], // <-- 新增这一行
+    redoStack: [],
   },
 };
 
@@ -105,7 +103,6 @@ const els = {
   customRangeInputs: document.getElementById('customRangeInputs'),
   customStartChar: document.getElementById('customStartChar'),
   customEndChar: document.getElementById('customEndChar'),
-  // 新增: 绘图相关元素
   drawingCanvas: document.getElementById('drawingCanvas'),
   annotationToolbar: document.getElementById('annotationToolbar'),
   toolBtns: document.querySelectorAll('.tool-btn'),
@@ -116,7 +113,6 @@ const els = {
   redoBtn: document.getElementById('redoBtn'),
 };
 
-// 新增: 绘图Canvas的2D上下文
 const drawingCtx = els.drawingCanvas.getContext('2d');
 
 function showProcessingOverlay(text) {
@@ -143,10 +139,8 @@ function hideThinkingIndicator(thinkingEl) {
   }
 }
 
-// 新增: 重绘绘图Canvas
 function redrawDrawingCanvas() {
     if (!drawingCtx) return;
-    // 适配高DPI屏幕
     const dpr = window.devicePixelRatio || 1;
     const rect = els.drawingCanvas.getBoundingClientRect();
     els.drawingCanvas.width = rect.width * dpr;
@@ -155,12 +149,10 @@ function redrawDrawingCanvas() {
 
     drawingCtx.clearRect(0, 0, els.drawingCanvas.width, els.drawingCanvas.height);
 
-    // 应用与主画布相同的变换
     drawingCtx.save();
     drawingCtx.translate(state.panX, state.panY);
     drawingCtx.scale(state.zoom, state.zoom);
 
-    // 绘制所有已保存的路径
     const pathsToDraw = [...state.drawing.paths];
     if (state.drawing.isDrawing && state.drawing.currentPath) {
         pathsToDraw.push(state.drawing.currentPath);
@@ -175,7 +167,7 @@ function redrawDrawingCanvas() {
         
         if (path.tool === 'highlighter') {
             drawingCtx.globalCompositeOperation = 'multiply';
-            drawingCtx.globalAlpha = 0.5; // 半透明效果
+            drawingCtx.globalAlpha = 0.5;
         } else if (path.tool === 'eraser') {
             drawingCtx.globalCompositeOperation = 'destination-out';
         } else {
@@ -199,57 +191,126 @@ function setTransform() {
   els.canvas.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
   els.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
   redrawWires();
-  redrawDrawingCanvas(); // 修改: 平移缩放时重绘笔记
+  redrawDrawingCanvas();
 }
 
 function initPanZoom() {
-  let isPanning = false;
-  let last = { x: 0, y: 0 };
-  els.canvasWrapper.addEventListener('mousedown', (e) => {
-    // 修改: 绘图模式下不触发平移
-    if (e.target.closest('.micro-chat') || e.target.closest('.node') || e.target === els.sidebarResizer || e.target.classList.contains('resizer-handle') || state.drawing.activeTool) return;
-    isPanning = true; last = { x: e.clientX, y: e.clientY };
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (!isPanning) return;
-    const dx = e.clientX - last.x; const dy = e.clientY - last.y; last = { x: e.clientX, y: e.clientY };
-    state.panX += dx; state.panY += dy; setTransform();
-  });
-  window.addEventListener('mouseup', () => { isPanning = false; });
-  els.canvasWrapper.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    if (state.drawing.activeTool) return; // 绘图模式下不触发滚轮
+    let isPanning = false;
+    let last = { x: 0, y: 0 };
+    let initialPinchDistance = null;
 
-    // 如果按下了 Ctrl 键，则执行缩放操作
-    if (e.ctrlKey) {
-      const scale = Math.exp(-e.deltaY * 0.001);
+    const getPinchDistance = (touches) => {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    };
 
-      // 1. 获取鼠标相对于固定容器 (canvasWrapper) 的位置
-      const wrapperRect = els.canvasWrapper.getBoundingClientRect();
-      const mouseX = e.clientX - wrapperRect.left;
-      const mouseY = e.clientY - wrapperRect.top;
+    const getPinchCenter = (touches) => {
+        return {
+            x: (touches[0].clientX + touches[1].clientX) / 2,
+            y: (touches[0].clientY + touches[1].clientY) / 2,
+        };
+    };
 
-      // 2. 计算鼠标指向的在画布上的“世界坐标”
-      const worldX = (mouseX - state.panX) / state.zoom;
-      const worldY = (mouseY - state.panY) / state.zoom;
-      
-      // 3. 更新缩放级别
-      const newZoom = state.zoom * scale;
-      
-      // 4. 计算新的平移量，以确保“世界坐标”点在缩放后仍在鼠标下方
-      state.panX = mouseX - worldX * newZoom;
-      state.panY = mouseY - worldY * newZoom;
-      state.zoom = newZoom;
+    const onPanStart = (e) => {
+        if (e.target.closest('.micro-chat, .node, .resizer-handle') || e.target === els.sidebarResizer || state.drawing.activeTool) {
+            return;
+        }
+        e.preventDefault();
 
-    // 否则，执行上下滚动操作
-    } else {
-      // e.deltaY 在向下滚动时为正，向上滚动时为负
-      // 我们从 panY 中减去它，以实现内容的自然滚动
-      state.panY -= e.deltaY;
-    }
+        if (e.touches && e.touches.length === 2) {
+            isPanning = false;
+            initialPinchDistance = getPinchDistance(e.touches);
+        } else {
+            isPanning = true;
+            const touch = e.touches ? e.touches[0] : e;
+            last = { x: touch.clientX, y: touch.clientY };
+        }
+    };
 
-    setTransform(); 
-  }, { passive: false });
+    const onPanMove = (e) => {
+        if (!e.touches) { // Mouse move
+            if (isPanning) {
+                const dx = e.clientX - last.x;
+                const dy = e.clientY - last.y;
+                last = { x: e.clientX, y: e.clientY };
+                state.panX += dx;
+                state.panY += dy;
+                setTransform();
+            }
+            return;
+        }
+        
+        // Touch move
+        e.preventDefault();
+
+        if (e.touches.length === 2 && initialPinchDistance !== null) {
+            isPanning = false;
+            const newDist = getPinchDistance(e.touches);
+            const scale = newDist / initialPinchDistance;
+            initialPinchDistance = newDist;
+
+            const center = getPinchCenter(e.touches);
+            const wrapperRect = els.canvasWrapper.getBoundingClientRect();
+            const mouseX = center.x - wrapperRect.left;
+            const mouseY = center.y - wrapperRect.top;
+            const worldX = (mouseX - state.panX) / state.zoom;
+            const worldY = (mouseY - state.panY) / state.zoom;
+            
+            const newZoom = state.zoom * scale;
+            
+            state.panX = mouseX - worldX * newZoom;
+            state.panY = mouseY - worldY * newZoom;
+            state.zoom = newZoom;
+
+            setTransform();
+
+        } else if (isPanning && e.touches.length === 1) {
+            const touch = e.touches[0];
+            const dx = touch.clientX - last.x;
+            const dy = touch.clientY - last.y;
+            last = { x: touch.clientX, y: touch.clientY };
+            state.panX += dx;
+            state.panY += dy;
+            setTransform();
+        }
+    };
+
+    const onPanEnd = (e) => {
+        isPanning = false;
+        initialPinchDistance = null;
+    };
+
+    els.canvasWrapper.addEventListener('mousedown', onPanStart);
+    window.addEventListener('mousemove', onPanMove);
+    window.addEventListener('mouseup', onPanEnd);
+    window.addEventListener('mouseleave', onPanEnd);
+
+    els.canvasWrapper.addEventListener('touchstart', onPanStart, { passive: false });
+    window.addEventListener('touchmove', onPanMove, { passive: false });
+    window.addEventListener('touchend', onPanEnd);
+    window.addEventListener('touchcancel', onPanEnd);
+
+    els.canvasWrapper.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (state.drawing.activeTool) return;
+
+        if (e.ctrlKey) {
+            const scale = Math.exp(-e.deltaY * 0.001);
+            const wrapperRect = els.canvasWrapper.getBoundingClientRect();
+            const mouseX = e.clientX - wrapperRect.left;
+            const mouseY = e.clientY - wrapperRect.top;
+            const worldX = (mouseX - state.panX) / state.zoom;
+            const worldY = (mouseY - state.panY) / state.zoom;
+            const newZoom = state.zoom * scale;
+            state.panX = mouseX - worldX * newZoom;
+            state.panY = mouseY - worldY * newZoom;
+            state.zoom = newZoom;
+        } else {
+            state.panY -= e.deltaY;
+        }
+        setTransform();
+    }, { passive: false });
 }
 
 function toggleElementSelection(element) {
@@ -311,11 +372,26 @@ function clearElementSelection() {
   updateSelectedElementsUI();
 }
 
+function clearTouchHovers() {
+    document.querySelectorAll('.atom.touch-hover').forEach(el => {
+        el.classList.remove('touch-hover');
+    });
+}
+
+// 【修改】重构以可靠地处理触摸屏上的“轻点”高亮
 function annotateAtoms() {
   state.elementIdCounter = 0;
   clearElementSelection();
   const selector = 'p, img, table, thead, tbody, tr, pre, h1, h2, h3, h4, h5, h6, li, blockquote, code, figure, figcaption, math, svg, mjx-container';
   const nodes = els.docHtml.querySelectorAll(selector);
+
+  // 用于检测 Tap 事件的变量
+  let touchstartX = 0;
+  let touchstartY = 0;
+  let touchendX = 0;
+  let touchendY = 0;
+  const TAP_THRESHOLD = 10; // 移动距离阈值
+
   nodes.forEach((n) => {
     n.classList.add('atom');
     const id = `atom-${++state.elementIdCounter}`;
@@ -327,13 +403,16 @@ function annotateAtoms() {
     ask.className = 'ask';
     ask.textContent = '?';
     n.appendChild(ask);
+    // 桌面端悬停
     n.addEventListener('mouseenter', () => n.classList.add('hover'));
     n.addEventListener('mouseleave', () => n.classList.remove('hover'));
+    // 问号按钮点击
     ask.addEventListener('click', (e) => {
       e.stopPropagation();
+      clearTouchHovers();
       openMicroChat(n);
     });
-
+    // 桌面端 Ctrl+Click
     n.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -341,12 +420,56 @@ function annotateAtoms() {
         toggleElementSelection(n);
       }
     });
+    // 拖拽
     n.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', n.dataset.atomId);
       e.dataTransfer.effectAllowed = 'copy';
     });
+
+    // --- 触摸事件处理 ---
+    n.addEventListener('touchstart', (e) => {
+        if(e.touches.length === 1) {
+            touchstartX = e.touches[0].clientX;
+            touchstartY = e.touches[0].clientY;
+        }
+    }, { passive: true });
+
+    n.addEventListener('touchend', (e) => {
+        if(e.changedTouches.length === 1) {
+            touchendX = e.changedTouches[0].clientX;
+            touchendY = e.changedTouches[0].clientY;
+
+            const dx = Math.abs(touchendX - touchstartX);
+            const dy = Math.abs(touchendY - touchstartY);
+
+            // 如果移动距离很小，则判定为 Tap
+            if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
+                // 如果点击在问号上，让问号的 click 事件处理
+                if (e.target.closest('.ask')) {
+                    return;
+                }
+                
+                e.stopPropagation();
+                // 如果元素已经被高亮，则取消；否则，高亮该元素
+                if (n.classList.contains('touch-hover')) {
+                    clearTouchHovers();
+                } else {
+                    clearTouchHovers();
+                    n.classList.add('touch-hover');
+                }
+            }
+        }
+    });
   });
+
+  // 全局监听器，用于取消触摸高亮
+  document.body.addEventListener('touchstart', (e) => {
+      if (!e.target.closest('.atom')) {
+          clearTouchHovers();
+      }
+  }, { passive: true, capture: true });
 }
+
 
 function toggleNodeConversation(node) {
   const existingChat = document.querySelector(`.micro-chat[data-node-id-ref='${node.node_id}']`);
@@ -709,6 +832,7 @@ function setupContextSelector(totalChars) {
 async function loadDocument(id) {
   state.documentId = id;
   closeAllMicroChats();
+  clearTouchHovers();
   
   const currentDoc = state.documents.find(d => d.document_id === id);
   if (currentDoc && currentDoc.total_chars > 0) {
@@ -735,7 +859,7 @@ async function loadDocument(id) {
   annotateAtoms();
   await loadNodes(id);
   await loadChats(id);
-  await loadDrawings(id); // 新增: 加载绘图笔记
+  await loadDrawings(id);
 }
 
 async function loadNodes(id) {
@@ -750,7 +874,6 @@ async function loadNodes(id) {
   redrawWires();
 }
 
-// 新增: 加载绘图笔记
 async function loadDrawings(id) {
   try {
       const drawings = await API.getDrawings(id);
@@ -759,14 +882,12 @@ async function loadDrawings(id) {
       console.error("无法加载绘图数据:", e);
       state.drawing.paths = [];
   }
-  // 【新增】加载新绘图时，重置恢复栈并更新按钮状态
   state.drawing.redoStack = [];
   const updateUndoRedoButtonStates = els.undoBtn.disabled !== undefined ? () => {
       els.undoBtn.disabled = state.drawing.paths.length === 0;
       els.redoBtn.disabled = state.drawing.redoStack.length === 0;
   } : () => {};
   updateUndoRedoButtonStates();
-  // 【新增结束】
   redrawDrawingCanvas();
 }
 
@@ -932,7 +1053,6 @@ function initSidebarChat() {
           messages: state.sidebarContext.conversation,
       };
 
-      // 【关键修改】移除 isFirstTurn 判断，确保每次都检查上下文范围
       if (state.sidebarContext.mode === 'document') {
           const rangeSelection = els.contextRangeSelect.value;
           
@@ -1130,13 +1250,9 @@ function initSidebar() {
     });
 }
 
-// =====================================================================
-// 新增: 绘图功能初始化 (已集成撤销/恢复功能)
-// =====================================================================
 function initDrawing() {
   let saveTimeout;
 
-  // 防抖保存函数
   const debouncedSaveDrawings = () => {
       clearTimeout(saveTimeout);
       saveTimeout = setTimeout(() => {
@@ -1145,16 +1261,14 @@ function initDrawing() {
                   console.error("保存绘图笔记失败:", err);
               });
           }
-      }, 1500); // 1.5秒后自动保存
+      }, 1500); 
   };
   
-  // 【新增】更新撤销/恢复按钮的可用状态
   const updateUndoRedoButtonStates = () => {
       els.undoBtn.disabled = state.drawing.paths.length === 0;
       els.redoBtn.disabled = state.drawing.redoStack.length === 0;
   };
   
-  // 【新增】撤销上一步操作
   const undoLastPath = () => {
       if (state.drawing.paths.length > 0) {
           const lastPath = state.drawing.paths.pop();
@@ -1165,7 +1279,6 @@ function initDrawing() {
       }
   };
 
-  // 【新增】恢复上一步撤销的操作
   const redoLastPath = () => {
       if (state.drawing.redoStack.length > 0) {
           const pathToRedo = state.drawing.redoStack.pop();
@@ -1176,19 +1289,17 @@ function initDrawing() {
       }
   };
 
-  // 将鼠标屏幕坐标转换为画布世界坐标
   const getTransformedCoords = (e) => {
       const rect = els.drawingCanvas.getBoundingClientRect();
+      const point = e.touches ? e.touches[0] : e;
       return {
-          x: (e.clientX - rect.left - state.panX) / state.zoom,
-          y: (e.clientY - rect.top - state.panY) / state.zoom
+          x: (point.clientX - rect.left - state.panX) / state.zoom,
+          y: (point.clientY - rect.top - state.panY) / state.zoom
       };
   };
 
-  // 工具栏事件监听
   els.toolBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-          // 【修改】确保撤销/恢复按钮不激活工具状态
           if (btn.id === 'undoBtn' || btn.id === 'redoBtn') return;
           
           const tool = btn.dataset.tool;
@@ -1222,9 +1333,10 @@ function initDrawing() {
       els.strokeWidthValue.textContent = width;
   });
 
-  // 绘图Canvas鼠标事件
-  const handleMouseDown = (e) => {
-      if (!state.drawing.activeTool || e.button !== 0) return;
+  const handleDrawStart = (e) => {
+      if (!state.drawing.activeTool || (e.button && e.button !== 0)) return;
+      e.preventDefault();
+      document.body.classList.add('drawing-active');
       state.drawing.isDrawing = true;
       
       const startPoint = getTransformedCoords(e);
@@ -1234,10 +1346,12 @@ function initDrawing() {
           width: state.drawing.strokeWidth,
           points: [startPoint]
       };
+      state.drawing.redoStack = [];
   };
 
-  const handleMouseMove = (e) => {
+  const handleDrawMove = (e) => {
       if (!state.drawing.isDrawing || !state.drawing.currentPath) return;
+      e.preventDefault();
       
       const point = getTransformedCoords(e);
       state.drawing.currentPath.points.push(point);
@@ -1245,64 +1359,74 @@ function initDrawing() {
       redrawDrawingCanvas();
   };
 
-  const handleMouseUp = () => {
+  const handleDrawEnd = (e) => {
       if (!state.drawing.isDrawing || !state.drawing.currentPath) return;
+      e.preventDefault();
+      document.body.classList.remove('drawing-active');
       
       state.drawing.isDrawing = false;
       if (state.drawing.currentPath.points.length > 1) {
           state.drawing.paths.push(state.drawing.currentPath);
-          // 【修改】当用户绘制新的笔迹时，清空恢复栈
-          state.drawing.redoStack = []; 
       }
       state.drawing.currentPath = null;
       
       debouncedSaveDrawings();
-      updateUndoRedoButtonStates(); // 【新增】更新按钮状态
+      updateUndoRedoButtonStates();
   };
   
-  els.drawingCanvas.addEventListener('mousedown', handleMouseDown);
-  els.drawingCanvas.addEventListener('mousemove', handleMouseMove);
-  els.drawingCanvas.addEventListener('mouseup', handleMouseUp);
-  els.drawingCanvas.addEventListener('mouseleave', handleMouseUp);
+  els.drawingCanvas.addEventListener('mousedown', handleDrawStart);
+  els.drawingCanvas.addEventListener('mousemove', handleDrawMove);
+  els.drawingCanvas.addEventListener('mouseup', handleDrawEnd);
+  els.drawingCanvas.addEventListener('mouseleave', handleDrawEnd);
 
-  // 【新增】为新按钮添加点击事件监听
+  els.drawingCanvas.addEventListener('touchstart', handleDrawStart, { passive: false });
+  els.drawingCanvas.addEventListener('touchmove', handleDrawMove, { passive: false });
+  els.drawingCanvas.addEventListener('touchend', handleDrawEnd);
+  els.drawingCanvas.addEventListener('touchcancel', handleDrawEnd);
+
   els.undoBtn.addEventListener('click', undoLastPath);
   els.redoBtn.addEventListener('click', redoLastPath);
 
-  // 【新增】增加键盘快捷键支持
   window.addEventListener('keydown', (e) => {
-      // 避免在输入框中触发
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
           return;
       }
-
-      const isCtrl = e.ctrlKey || e.metaKey; // 支持 Windows (Ctrl) 和 Mac (Cmd)
-      if (isCtrl && e.key === 'z') {
-          e.preventDefault();
-          undoLastPath();
-      }
-      if (isCtrl && e.key === 'y') {
-          e.preventDefault();
-          redoLastPath();
-      }
+      const isCtrl = e.ctrlKey || e.metaKey;
+      if (isCtrl && e.key === 'z') { e.preventDefault(); undoLastPath(); }
+      if (isCtrl && e.key === 'y') { e.preventDefault(); redoLastPath(); }
   });
 
   window.addEventListener('resize', redrawDrawingCanvas);
-  updateUndoRedoButtonStates(); // 【新增】初始化按钮状态
+  updateUndoRedoButtonStates();
 }
 
+// 【修改】重构以正确处理移动端初始视图
 function boot() {
   initPanZoom();
   initUI();
   initSidebar();
   initSidebarChat();
   initSidebarDropZone();
-  initDrawing(); // 新增: 初始化绘图功能
+  initDrawing();
   
-  const wrapper = els.canvasWrapper.getBoundingClientRect();
-  state.panX = (wrapper.width - 920) / 2;
-  state.panY = 60;
-  setTransform();
+  const wrapperRect = els.canvasWrapper.getBoundingClientRect();
+  const CONTENT_THEORETICAL_WIDTH = 920;
+  
+  // 确保在应用变换前，先设置好初始值
+  state.panY = 60; 
+
+  if (wrapperRect.width > CONTENT_THEORETICAL_WIDTH) {
+      // 桌面端或宽屏平板：居中内容
+      state.panX = (wrapperRect.width - CONTENT_THEORETICAL_WIDTH) / 2;
+  } else {
+      // 手机或窄屏平板：靠左显示并留出边距
+      state.panX = 16;
+  }
+  
+  // 延迟一帧执行，确保DOM布局稳定
+  requestAnimationFrame(() => {
+    setTransform();
+  });
   
   els.sidebar.classList.add('hidden');
   els.sidebarResizer.classList.add('hidden');
