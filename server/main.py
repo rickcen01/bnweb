@@ -38,11 +38,13 @@ DATA_DIR = os.path.join(ROOT_DIR, 'data')
 DOCS_DIR = os.path.join(DATA_DIR, 'documents')
 NODES_DIR = os.path.join(DATA_DIR, 'nodes')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
+DRAWINGS_DIR = os.path.join(DATA_DIR, 'drawings') # 新增：绘图数据目录
 WEB_DIR = os.path.join(ROOT_DIR, 'web')
 
 os.makedirs(DOCS_DIR, exist_ok=True)
 os.makedirs(NODES_DIR, exist_ok=True)
 os.makedirs(CHATS_DIR, exist_ok=True)
+os.makedirs(DRAWINGS_DIR, exist_ok=True) # 新增：创建绘图数据目录
 
 
 class Message(BaseModel):
@@ -346,6 +348,34 @@ def delete_chat(document_id: str, chat_id: str):
     return {"status": "ok"}
 
 
+# 新增：绘图笔记的辅助函数
+def _drawings_path(document_id: str) -> str:
+    return os.path.join(DRAWINGS_DIR, f"{document_id}.json")
+
+def _read_drawings(document_id: str) -> List[Dict[str, Any]]:
+    path = _drawings_path(document_id)
+    if not os.path.exists(path): return []
+    with open(path, 'r', encoding='utf-8') as f:
+        try: return json.load(f)
+        except Exception: return []
+
+def _write_drawings(document_id: str, drawings: List[Dict[str, Any]]):
+    path = _drawings_path(document_id)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(drawings, f, ensure_ascii=False, indent=2)
+
+# 新增：获取绘图笔记的API
+@app.get("/api/drawings/{document_id}")
+def get_drawings(document_id: str) -> List[Dict[str, Any]]:
+    return _read_drawings(document_id)
+
+# 新增：保存绘图笔记的API
+@app.post("/api/drawings/{document_id}")
+def save_drawings(document_id: str, drawings: List[Dict[str, Any]]):
+    _write_drawings(document_id, drawings)
+    return {"status": "ok"}
+
+
 class ChatRequest(BaseModel):
     document_id: str
     messages: List[Message]
@@ -512,7 +542,7 @@ def chat(req: ChatRequest):
 
             print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
 
-            response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt_for_model])
+            response = client.models.generate_content(model="gemini-2.5-pro", contents=[prompt_for_model])
             
             print("\n" + "="*20 + " [AI Chat Response (First Turn)] " + "="*20)
             print("--- Raw Response Object ---")
@@ -568,7 +598,7 @@ def chat(req: ChatRequest):
             print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
             print("="*50 + "\n")
 
-            chat_session = client.chats.create(model="gemini-2.5-flash", history=history_for_model)
+            chat_session = client.chats.create(model="gemini-2.5-pro", history=history_for_model)
             response = chat_session.send_message(prompt_for_model)
 
             print("\n" + "="*20 + " [AI Chat Response (Follow-up)] " + "="*20)

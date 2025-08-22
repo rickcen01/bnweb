@@ -38,6 +38,8 @@
           </div>
           <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
+        <!-- 新增：用于绘图的Canvas -->
+        <canvas id="drawingCanvas"></canvas>
       </div>
 
       <div id="sidebarResizer" class="hidden"></div>
@@ -106,6 +108,26 @@
     <div id="processingOverlay" class="hidden">
       <div class="spinner"></div>
       <p id="processingText"></p>
+    </div>
+
+    <!-- 新增：笔记和高亮工具栏 -->
+    <div id="annotationToolbar">
+      <button class="tool-btn" data-tool="pen" title="画笔">✏️</button>
+      <button class="tool-btn" data-tool="highlighter" title="高亮">🖍️</button>
+      <button class="tool-btn" data-tool="eraser" title="橡皮擦">🧼</button>
+
+      <!-- 新增：后退和前进按钮 -->
+      <button class="tool-btn" id="undoBtn" title="后退 (Ctrl+Z)">↶</button>
+      <button class="tool-btn" id="redoBtn" title="前进 (Ctrl+Y)">↷</button>
+      <!-- 新增结束 -->
+      
+      <div class="divider"></div>
+      <input type="color" id="colorPicker" value="#FF0000" title="选择颜色">
+      <div class="stroke-control">
+        <label for="strokeWidth" title="笔触粗细">粗细</label>
+        <input type="range" id="strokeWidth" min="1" max="100" value="5">
+        <span id="strokeWidthValue">5</span>
+      </div>
     </div>
 
     <script src="/web/main.js"></script>
