@@ -2,12 +2,13 @@
 
 * { box-sizing: border-box; }
 
+/* 【修改】确保页面严格等于视口大小，禁止页面滚动 */
 html { height: 100%; }
 body { 
-    height: 100vh; 
+    height: 100%; 
     margin: 0; 
     font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; 
-    overflow-x: hidden; 
+    overflow: hidden; /* 关键：禁止body滚动，确保fixed元素相对于视口 */
     display: flex;
     flex-direction: column;
 }
@@ -188,10 +189,30 @@ label.upload input { display: none; }
   outline: 2px solid #007bff;
   background-color: rgba(0, 123, 255, 0.1);
 }
-.atom .ask { position: absolute; right: -28px; top: 0; width: 22px; height: 22px; border-radius: 11px; background: rgba(0,0,0,0.6); color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transform: translateY(-4px); transition: all 0.12s ease; cursor: pointer; z-index: 4; }
+.atom .ask { 
+    position: absolute; 
+    /* right: -28px; */ /* 删除 */
+    /* top: 0; */ /* 删除 */
+    left: 50%; /* 新增：水平居中 */
+    bottom: -28px; /* 新增：定位到元素外部的底部 */
+    width: 22px; 
+    height: 22px; 
+    border-radius: 11px; 
+    background: rgba(0,0,0,0.6); 
+    color: #fff; 
+    font-size: 14px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    opacity: 0; 
+    transform: translate(-50%, 4px); /* 修改：同时处理水平居中和初始动画位置 */
+    transition: all 0.12s ease; 
+    cursor: pointer; 
+    z-index: 4; 
+}
 .atom.hover .ask, .atom.touch-hover .ask { 
     opacity: 1; 
-    transform: translateY(0); 
+    transform: translate(-50%, 0); /* 修改：hover/touch时的最终位置 */
 }
 
 .micro-chat { 
@@ -210,7 +231,7 @@ label.upload input { display: none; }
     resize: both;
     overflow: hidden;
 }
-/* 【修改】移除 overflow: hidden 以修复侧边栏滚动问题 */
+
 .micro-chat.sidebar { 
     position: static; 
     width: auto; 
@@ -221,7 +242,6 @@ label.upload input { display: none; }
     border-radius: 0;
     background: transparent;
     resize: none;
-    /* overflow: hidden; */ /* <- 移除此行 */
 }
 .micro-chat .messages { 
     overflow-y: auto; 
@@ -453,8 +473,9 @@ label.upload input { display: none; }
     50%, 100% { background-color: #e0e0e0; }
 }
 
+/* 【改动】将 position 从 fixed 改为 absolute */
 #annotationToolbar {
-    position: fixed;
+    position: absolute;
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
@@ -471,6 +492,7 @@ label.upload input { display: none; }
     padding: 8px;
     gap: 8px;
     z-index: 100;
+    user-select: none; /* 【新增】防止移动端误触时选中文字 */
 }
 .tool-btn {
     background: transparent;
@@ -533,7 +555,6 @@ label.upload input { display: none; }
     font-variant-numeric: tabular-nums;
 }
 
-/* 【新增】媒体查询，修复手机端工具栏显示问题 */
 @media (max-width: 480px) {
     #annotationToolbar {
         gap: 4px;

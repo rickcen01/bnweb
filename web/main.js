@@ -378,7 +378,6 @@ function clearTouchHovers() {
     });
 }
 
-// 【修改】重构事件处理逻辑以修复问号点击问题
 function annotateAtoms() {
   state.elementIdCounter = 0;
   clearElementSelection();
@@ -421,53 +420,85 @@ function annotateAtoms() {
     });
     
     // --- 问号按钮的交互 ---
-    // 桌面端鼠标点击
     ask.addEventListener('click', (e) => {
         e.stopPropagation();
         openMicroChat(n);
     });
-    // 移动端触摸
     ask.addEventListener('touchend', (e) => {
-        e.preventDefault(); // 阻止后续的 pan, zoom 或模拟的 click 事件
+        e.preventDefault();
         e.stopPropagation();
         openMicroChat(n);
     });
 
-    // --- 元素本身（高亮）的触摸交互 ---
-    n.addEventListener('touchstart', (e) => {
-        if(e.touches.length === 1) {
-            touchstartX = e.touches[0].clientX;
-            touchstartY = e.touches[0].clientY;
-        }
-    }, { passive: true });
+    // --- 新的元素触摸交互逻辑 (长按/双击选择，单击悬停) ---
+    let longPressTimer;
+    let lastTapTime = 0;
+    const LONG_PRESS_DURATION = 500; // 长按时长 (毫秒)
+    const DOUBLE_TAP_WINDOW = 300; // 双击间隔 (毫秒)
 
-    n.addEventListener('touchend', (e) => {
-        // 如果事件是从问号按钮冒泡上来的，则忽略，因为问号有自己的处理器
-        if (e.target.closest('.ask')) {
+    n.addEventListener('touchstart', (e) => {
+        if (e.touches.length > 1 || e.target.closest('.ask')) {
+            clearTimeout(longPressTimer);
             return;
         }
+        
+        touchstartX = e.touches[0].clientX;
+        touchstartY = e.touches[0].clientY;
 
-        if(e.changedTouches.length === 1) {
-            const touchendX = e.changedTouches[0].clientX;
-            const touchendY = e.changedTouches[0].clientY;
-            const dx = Math.abs(touchendX - touchstartX);
-            const dy = Math.abs(touchendY - touchstartY);
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null; // 标记长按已触发
+            if (navigator.vibrate) navigator.vibrate(50);
+            toggleElementSelection(n);
+            e.preventDefault(); // 阻止默认的上下文菜单
+        }, LONG_PRESS_DURATION);
 
-            // 如果是轻点 (tap)
-            if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-                e.stopPropagation();
-                if (n.classList.contains('touch-hover')) {
-                    clearTouchHovers();
-                } else {
-                    clearTouchHovers();
-                    n.classList.add('touch-hover');
-                }
+    }, { passive: false });
+
+    n.addEventListener('touchmove', () => {
+        // 如果手指移动超出阈值，取消长按计时器
+        const touch = event.touches[0];
+        if (Math.abs(touch.clientX - touchstartX) > TAP_THRESHOLD || Math.abs(touch.clientY - touchstartY) > TAP_THRESHOLD) {
+            clearTimeout(longPressTimer);
+        }
+    });
+    
+    n.addEventListener('touchend', (e) => {
+        // 如果长按已触发，则阻止后续的点击事件
+        if (longPressTimer === null) {
+            e.preventDefault();
+            return;
+        }
+        clearTimeout(longPressTimer);
+
+        // 如果是滚动/拖拽而不是点击，则不做任何事
+        if (e.changedTouches.length === 1) {
+            const dx = Math.abs(e.changedTouches[0].clientX - touchstartX);
+            const dy = Math.abs(e.changedTouches[0].clientY - touchstartY);
+            if (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD) {
+                return;
             }
+        }
+        
+        // 判断是双击还是单击
+        const currentTime = new Date().getTime();
+        if (currentTime - lastTapTime < DOUBLE_TAP_WINDOW) {
+            // 检测到双击
+            e.preventDefault();
+            toggleElementSelection(n);
+            lastTapTime = 0; // 重置时间以防止三次点击被识别为双击
+        } else {
+            // 检测到单击
+            if (!n.classList.contains('touch-hover')) {
+                clearTouchHovers();
+                n.classList.add('touch-hover');
+            }
+            // 如果元素已被悬停，则单击不执行任何操作，以便用户可以点击 '?' 按钮
+            lastTapTime = currentTime;
         }
     });
   });
 
-  // 点击页面空白处，取消所有高亮
+  // 点击页面空白处，取消所有悬停高亮
   document.body.addEventListener('click', (e) => {
       if (!e.target.closest('.atom')) {
           clearTouchHovers();
@@ -490,15 +521,19 @@ function openMicroChat(atomEl) {
   clearTouchHovers(); // 打开对话框时清除高亮
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
-  const rect = atomEl.getBoundingClientRect();
-  const parentRect = els.canvas.getBoundingClientRect();
-  const contentFrameRect = els.contentFrame.getBoundingClientRect();
-  const offsetX = contentFrameRect.right - parentRect.left;
-  const offsetY = rect.top - parentRect.top;
-  const left = offsetX / state.zoom + 24;
-  const top = offsetY / state.zoom;
-  box.style.left = `${left}px`;
-  box.style.top = `${top}px`;
+  // web/main.js -> openMicroChat function (找到并替换这一段)
+  const atomRect = atomEl.getBoundingClientRect();
+  const canvasRect = els.canvas.getBoundingClientRect();
+  const chatBoxWidth = 320; // 对话框宽度，需与CSS中的匹配
+  const gap = 10; // “？”图标与对话框之间的间距 (单位: px)
+
+  // 1. 计算元素底部中心点在“世界坐标系”（即缩放后的画布）中的位置
+  const worldX = (atomRect.left + atomRect.width / 2 - canvasRect.left) / state.zoom;
+  const worldY = (atomRect.bottom - canvasRect.top) / state.zoom;
+
+  // 2. 设置对话框的位置，使其顶部中心对齐到目标点
+  box.style.left = `${worldX - (chatBoxWidth / 2)}px`;
+  box.style.top = `${worldY + gap}px`;
   els.canvas.appendChild(box);
   const input = box.querySelector('input');
   const sendBtn = box.querySelector('.send');
@@ -1426,15 +1461,22 @@ function boot() {
   initSidebarDropZone();
   initDrawing();
   
+  // 【修改】根据屏幕宽度计算初始化的缩放和位置，以适应移动端
   const wrapperRect = els.canvasWrapper.getBoundingClientRect();
   const CONTENT_THEORETICAL_WIDTH = 920;
-  
-  state.panY = 60; 
+  const PADDING_X = 32; // 为内容保留的左右边距
 
-  if (wrapperRect.width > CONTENT_THEORETICAL_WIDTH) {
-      state.panX = (wrapperRect.width - CONTENT_THEORETICAL_WIDTH) / 2;
+  state.panY = 60; // 统一的顶部偏移
+
+  if (wrapperRect.width < CONTENT_THEORETICAL_WIDTH) {
+    // 移动端或窄窗口：计算缩放值以适应宽度
+    state.zoom = wrapperRect.width / (CONTENT_THEORETICAL_WIDTH + PADDING_X);
+    // 居中放置缩放后的内容
+    state.panX = (wrapperRect.width - (CONTENT_THEORETICAL_WIDTH * state.zoom)) / 2;
   } else {
-      state.panX = 16;
+    // 桌面端：正常居中，不缩放
+    state.zoom = 1;
+    state.panX = (wrapperRect.width - CONTENT_THEORETICAL_WIDTH) / 2;
   }
   
   requestAnimationFrame(() => {
