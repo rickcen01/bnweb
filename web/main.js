@@ -111,6 +111,7 @@ const els = {
   strokeWidthValue: document.getElementById('strokeWidthValue'),
   undoBtn: document.getElementById('undoBtn'),
   redoBtn: document.getElementById('redoBtn'),
+  toggleToolbarBtn: document.getElementById('toggleToolbarBtn'),
 };
 
 const drawingCtx = els.drawingCanvas.getContext('2d');
@@ -213,7 +214,7 @@ function initPanZoom() {
     };
 
     const onPanStart = (e) => {
-        if (e.target.closest('.micro-chat, .node, .resizer-handle') || e.target === els.sidebarResizer || state.drawing.activeTool) {
+        if (e.target.closest('.micro-chat') || e.target.closest('#sidebar') || e.target.closest('.node') || e.target.closest('.resizer-handle') || state.drawing.activeTool) {
             return;
         }
         e.preventDefault();
@@ -229,7 +230,8 @@ function initPanZoom() {
     };
 
     const onPanMove = (e) => {
-        if (!e.touches) { // Mouse move
+        // 鼠标移动逻辑 (保持不变)
+        if (!e.touches) { 
             if (isPanning) {
                 const dx = e.clientX - last.x;
                 const dy = e.clientY - last.y;
@@ -241,8 +243,22 @@ function initPanZoom() {
             return;
         }
         
-        // Touch move
-        e.preventDefault();
+        // --- 触摸移动逻辑 (关键修改) ---
+
+        // 检查是否应该执行平移或缩放。
+        // isPanning 是在 onPanStart 中设置的，当触摸起始点在画布上时为 true
+        // initialPinchDistance 是在 onPanStart 中设置的，当有两根手指触摸时
+        const shouldPanOrZoom = isPanning || (e.touches.length === 2 && initialPinchDistance !== null);
+
+        // 只有当我们确定要进行平移或缩放操作时，才阻止默认的滚动行为
+        if (shouldPanOrZoom) {
+            e.preventDefault();
+        } else {
+            // 如果不是平移或缩放操作（例如，用户可能想在侧边栏里滚动），
+            // 则直接返回，让浏览器处理默认行为。
+            return;
+        }
+
 
         if (e.touches.length === 2 && initialPinchDistance !== null) {
             isPanning = false;
@@ -664,39 +680,96 @@ function addNodeToCanvas(node) {
   el.dataset.nodeId = node.node_id;
   el.dataset.sourceId = node.source_element_id;
   el.title = '点击展开/收缩对话';
-  el.addEventListener('click', () => toggleNodeConversation(node));
+  // el.addEventListener('click', () => toggleNodeConversation(node));
   enableNodeDrag(el, node);
   els.canvas.appendChild(el);
   redrawWires();
 }
 
 function enableNodeDrag(el, node) {
-  let dragging = false; let start = { x: 0, y: 0 };
-  el.addEventListener('mousedown', (e) => {
+  let isDragging = false;
+  let hasMoved = false;
+  let start = { x: 0, y: 0 };
+  const MOVE_THRESHOLD = 5; // 移动超过5像素才算作拖动
+
+  const onStart = (clientX, clientY, e) => {
     e.stopPropagation();
-    dragging = true; 
-    start = { x: e.clientX, y: e.clientY };
+    isDragging = true;
+    hasMoved = false;
+    start = { x: clientX, y: clientY };
     el.style.cursor = 'grabbing';
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const dx = (e.clientX - start.x) / state.zoom; 
-    const dy = (e.clientY - start.y) / state.zoom;
-    const newX = parseFloat(el.style.left) + dx;
-    const newY = parseFloat(el.style.top) + dy;
-    el.style.left = `${newX}px`; 
-    el.style.top = `${newY}px`;
-    node.canvas_position.x = newX; 
-    node.canvas_position.y = newY; 
-    start = { x: e.clientX, y: e.clientY };
-    redrawWires();
-  });
-  window.addEventListener('mouseup', async () => {
-    if (!dragging) return; 
-    dragging = false; 
+  };
+
+  const onMove = (clientX, clientY, e) => {
+    if (!isDragging) return;
+
+    const dx = clientX - start.x;
+    const dy = clientY - start.y;
+
+    if (!hasMoved && (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD)) {
+      hasMoved = true;
+    }
+
+    if (hasMoved) {
+      // 只有在确定是拖动时，才阻止页面滚动
+      if (e && e.cancelable) {
+         e.preventDefault();
+      }
+      
+      const moveDx = (clientX - start.x) / state.zoom;
+      const moveDy = (clientY - start.y) / state.zoom;
+      const newX = parseFloat(el.style.left) + moveDx;
+      const newY = parseFloat(el.style.top) + moveDy;
+      el.style.left = `${newX}px`;
+      el.style.top = `${newY}px`;
+      node.canvas_position.x = newX;
+      node.canvas_position.y = newY;
+      start = { x: clientX, y: clientY };
+      redrawWires();
+    }
+  };
+
+  const onEnd = async (e) => {
+    if (!isDragging) return;
+    
+    // 如果是“点击”而非“拖动”
+    if (!hasMoved) {
+      // 【关键修复】阻止浏览器在 touchend 后模拟 click 事件
+      if (e) {
+        e.preventDefault();
+      }
+      toggleNodeConversation(node);
+    } else {
+      // 如果是“拖动”，则保存位置
+      try {
+        await API.saveNode(state.documentId, node);
+      } catch {}
+    }
+
+    isDragging = false;
     el.style.cursor = 'grab';
-    try { await API.saveNode(state.documentId, node); } catch {}
-  });
+  };
+
+  // --- 鼠标事件 ---
+  el.addEventListener('mousedown', (e) => onStart(e.clientX, e.clientY, e));
+  window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY, e));
+  window.addEventListener('mouseup', (e) => onEnd(e)); // 传递事件对象
+
+  // --- 触摸事件 ---
+  el.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+          onStart(e.touches[0].clientX, e.touches[0].clientY, e);
+      }
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+      if (isDragging && e.touches.length > 0) {
+          onMove(e.touches[0].clientX, e.touches[0].clientY, e);
+      }
+  }, { passive: false });
+
+  window.addEventListener('touchend', (e) => onEnd(e)); // 传递事件对象
+  window.addEventListener('touchcancel', (e) => onEnd(e)); // 传递事件对象
 }
 
 function redrawWires() {
@@ -1353,7 +1426,7 @@ function initDrawing() {
 
   els.toolBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-          if (btn.id === 'undoBtn' || btn.id === 'redoBtn') return;
+          if (btn.id === 'undoBtn' || btn.id === 'redoBtn' || btn.id === 'toggleToolbarBtn') return;
           
           const tool = btn.dataset.tool;
           if (state.drawing.activeTool === tool) {
@@ -1453,6 +1526,22 @@ function initDrawing() {
   updateUndoRedoButtonStates();
 }
 
+function initToolbarToggle() {
+    if (!els.toggleToolbarBtn || !els.annotationToolbar) return;
+    
+    els.toggleToolbarBtn.addEventListener('click', () => {
+        const isCollapsed = els.annotationToolbar.classList.toggle('collapsed');
+        
+        if (isCollapsed) {
+            els.toggleToolbarBtn.innerHTML = '▲';
+            els.toggleToolbarBtn.title = '展开工具栏';
+        } else {
+            els.toggleToolbarBtn.innerHTML = '▼';
+            els.toggleToolbarBtn.title = '收起工具栏';
+        }
+    });
+}
+
 function boot() {
   initPanZoom();
   initUI();
@@ -1460,6 +1549,7 @@ function boot() {
   initSidebarChat();
   initSidebarDropZone();
   initDrawing();
+  initToolbarToggle();
   
   // 【修改】根据屏幕宽度计算初始化的缩放和位置，以适应移动端
   const wrapperRect = els.canvasWrapper.getBoundingClientRect();

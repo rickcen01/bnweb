@@ -117,8 +117,11 @@ label.upload input { display: none; }
 }
 .sidebar-close-btn:hover { color: #333; }
 
-#sidebarContent { flex: 1; overflow: hidden; }
-
+#sidebarContent { 
+    flex: 1; 
+    overflow-y: auto; /* 将 hidden 改为 auto，允许垂直滚动 */
+    -webkit-overflow-scrolling: touch; /* 在iOS上增加流畅的滚动效果 */
+}
 #sidebarResizer {
     width: 5px;
     background-color: transparent;
@@ -473,7 +476,7 @@ label.upload input { display: none; }
     50%, 100% { background-color: #e0e0e0; }
 }
 
-/* 【改动】将 position 从 fixed 改为 absolute */
+/* 【改动】修改工具栏样式以支持折叠 */
 #annotationToolbar {
     position: absolute;
     bottom: 20px;
@@ -492,8 +495,32 @@ label.upload input { display: none; }
     padding: 8px;
     gap: 8px;
     z-index: 100;
-    user-select: none; /* 【新增】防止移动端误触时选中文字 */
+    user-select: none;
+    transition: bottom 0.3s ease-in-out; /* 新增过渡效果 */
 }
+
+/* 新增：折叠动画的容器 */
+.toolbar-content-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: max-width 0.3s ease-in-out, opacity 0.2s ease-in-out, visibility 0.3s;
+    overflow: hidden;
+    max-width: 500px; /* 正常状态下足够宽 */
+    opacity: 1;
+    visibility: visible;
+}
+
+#annotationToolbar.collapsed {
+    bottom: 0; /* 折叠后移动到最底部 */
+}
+
+#annotationToolbar.collapsed .toolbar-content-wrapper {
+    max-width: 0;
+    opacity: 0;
+    visibility: hidden;
+}
+
 .tool-btn {
     background: transparent;
     border: 1px solid transparent;

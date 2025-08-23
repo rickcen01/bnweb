@@ -83,24 +83,27 @@
         </div>
       </div>
       
-      <!-- 【改动】笔记工具栏被移动到 #container 内部 -->
+      <!-- 【改动】笔记工具栏结构已修改以支持折叠 -->
       <div id="annotationToolbar">
-        <button class="tool-btn" data-tool="pen" title="画笔">✏️</button>
-        <button class="tool-btn" data-tool="highlighter" title="高亮">🖍️</button>
-        <button class="tool-btn" data-tool="eraser" title="橡皮擦">🧼</button>
-  
-        <!-- 新增：后退和前进按钮 -->
-        <button class="tool-btn" id="undoBtn" title="后退 (Ctrl+Z)">↶</button>
-        <button class="tool-btn" id="redoBtn" title="前进 (Ctrl+Y)">↷</button>
-        <!-- 新增结束 -->
-        
-        <div class="divider"></div>
-        <input type="color" id="colorPicker" value="#FF0000" title="选择颜色">
-        <div class="stroke-control">
-          <label for="strokeWidth" title="笔触粗细">粗细</label>
-          <input type="range" id="strokeWidth" min="1" max="100" value="5">
-          <span id="strokeWidthValue">5</span>
+        <div class="toolbar-content-wrapper">
+            <button class="tool-btn" data-tool="pen" title="画笔">✏️</button>
+            <button class="tool-btn" data-tool="highlighter" title="高亮">🖍️</button>
+            <button class="tool-btn" data-tool="eraser" title="橡皮擦">🧼</button>
+      
+            <!-- 新增：后退和前进按钮 -->
+            <button class="tool-btn" id="undoBtn" title="后退 (Ctrl+Z)">↶</button>
+            <button class="tool-btn" id="redoBtn" title="前进 (Ctrl+Y)">↷</button>
+            <!-- 新增结束 -->
+            
+            <div class="divider"></div>
+            <input type="color" id="colorPicker" value="#FF0000" title="选择颜色">
+            <div class="stroke-control">
+              <label for="strokeWidth" title="笔触粗细">粗细</label>
+              <input type="range" id="strokeWidth" min="1" max="100" value="5">
+              <span id="strokeWidthValue">5</span>
+            </div>
         </div>
+        <button class="tool-btn" id="toggleToolbarBtn" title="收起工具栏">▼</button>
       </div>
 
     </div>
