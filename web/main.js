@@ -378,19 +378,16 @@ function clearTouchHovers() {
     });
 }
 
-// 【修改】重构以可靠地处理触摸屏上的“轻点”高亮
+// 【修改】重构事件处理逻辑以修复问号点击问题
 function annotateAtoms() {
   state.elementIdCounter = 0;
   clearElementSelection();
   const selector = 'p, img, table, thead, tbody, tr, pre, h1, h2, h3, h4, h5, h6, li, blockquote, code, figure, figcaption, math, svg, mjx-container';
   const nodes = els.docHtml.querySelectorAll(selector);
 
-  // 用于检测 Tap 事件的变量
   let touchstartX = 0;
   let touchstartY = 0;
-  let touchendX = 0;
-  let touchendY = 0;
-  const TAP_THRESHOLD = 10; // 移动距离阈值
+  const TAP_THRESHOLD = 10;
 
   nodes.forEach((n) => {
     n.classList.add('atom');
@@ -403,16 +400,12 @@ function annotateAtoms() {
     ask.className = 'ask';
     ask.textContent = '?';
     n.appendChild(ask);
+    
     // 桌面端悬停
     n.addEventListener('mouseenter', () => n.classList.add('hover'));
     n.addEventListener('mouseleave', () => n.classList.remove('hover'));
-    // 问号按钮点击
-    ask.addEventListener('click', (e) => {
-      e.stopPropagation();
-      clearTouchHovers();
-      openMicroChat(n);
-    });
-    // 桌面端 Ctrl+Click
+    
+    // 桌面端 Ctrl+Click 选择
     n.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -420,13 +413,27 @@ function annotateAtoms() {
         toggleElementSelection(n);
       }
     });
+    
     // 拖拽
     n.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', n.dataset.atomId);
       e.dataTransfer.effectAllowed = 'copy';
     });
+    
+    // --- 问号按钮的交互 ---
+    // 桌面端鼠标点击
+    ask.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openMicroChat(n);
+    });
+    // 移动端触摸
+    ask.addEventListener('touchend', (e) => {
+        e.preventDefault(); // 阻止后续的 pan, zoom 或模拟的 click 事件
+        e.stopPropagation();
+        openMicroChat(n);
+    });
 
-    // --- 触摸事件处理 ---
+    // --- 元素本身（高亮）的触摸交互 ---
     n.addEventListener('touchstart', (e) => {
         if(e.touches.length === 1) {
             touchstartX = e.touches[0].clientX;
@@ -435,22 +442,20 @@ function annotateAtoms() {
     }, { passive: true });
 
     n.addEventListener('touchend', (e) => {
-        if(e.changedTouches.length === 1) {
-            touchendX = e.changedTouches[0].clientX;
-            touchendY = e.changedTouches[0].clientY;
+        // 如果事件是从问号按钮冒泡上来的，则忽略，因为问号有自己的处理器
+        if (e.target.closest('.ask')) {
+            return;
+        }
 
+        if(e.changedTouches.length === 1) {
+            const touchendX = e.changedTouches[0].clientX;
+            const touchendY = e.changedTouches[0].clientY;
             const dx = Math.abs(touchendX - touchstartX);
             const dy = Math.abs(touchendY - touchstartY);
 
-            // 如果移动距离很小，则判定为 Tap
+            // 如果是轻点 (tap)
             if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-                // 如果点击在问号上，让问号的 click 事件处理
-                if (e.target.closest('.ask')) {
-                    return;
-                }
-                
                 e.stopPropagation();
-                // 如果元素已经被高亮，则取消；否则，高亮该元素
                 if (n.classList.contains('touch-hover')) {
                     clearTouchHovers();
                 } else {
@@ -462,12 +467,12 @@ function annotateAtoms() {
     });
   });
 
-  // 全局监听器，用于取消触摸高亮
-  document.body.addEventListener('touchstart', (e) => {
+  // 点击页面空白处，取消所有高亮
+  document.body.addEventListener('click', (e) => {
       if (!e.target.closest('.atom')) {
           clearTouchHovers();
       }
-  }, { passive: true, capture: true });
+  }, true);
 }
 
 
@@ -482,6 +487,7 @@ function toggleNodeConversation(node) {
 
 function openMicroChat(atomEl) {
   closeAllMicroChats();
+  clearTouchHovers(); // 打开对话框时清除高亮
   const tpl = els.microChatTemplate.content.cloneNode(true);
   const box = tpl.querySelector('.micro-chat');
   const rect = atomEl.getBoundingClientRect();
@@ -1218,37 +1224,49 @@ function initSidebar() {
     });
 
     let isResizing = false;
-    els.sidebarResizer.addEventListener('mousedown', (e) => {
+
+    const onResizeStart = (e) => {
         e.preventDefault();
         isResizing = true;
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
+        
+        window.addEventListener('mousemove', onResizeMove);
+        window.addEventListener('mouseup', onResizeEnd);
+        window.addEventListener('touchmove', onResizeMove, { passive: false });
+        window.addEventListener('touchend', onResizeEnd);
+    };
 
-        const onMouseMove = (e) => {
-            if (!isResizing) return;
-            const containerRect = document.querySelector('#container').getBoundingClientRect();
-            let newWidth = containerRect.right - e.clientX;
-            
-            const minWidth = 300;
-            const maxWidth = 800;
-            if (newWidth < minWidth) newWidth = minWidth;
-            if (newWidth > maxWidth) newWidth = maxWidth;
+    const onResizeMove = (e) => {
+        if (!isResizing) return;
+        
+        const touch = e.touches ? e.touches[0] : e;
+        const containerRect = document.querySelector('#container').getBoundingClientRect();
+        let newWidth = containerRect.right - touch.clientX;
+        
+        const minWidth = 300;
+        const maxWidth = 800;
+        if (newWidth < minWidth) newWidth = minWidth;
+        if (newWidth > maxWidth) newWidth = maxWidth;
 
-            els.sidebar.style.width = `${newWidth}px`;
-        };
+        els.sidebar.style.width = `${newWidth}px`;
+    };
 
-        const onMouseUp = () => {
-            isResizing = false;
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
-        };
-
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
-    });
+    const onResizeEnd = () => {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        
+        window.removeEventListener('mousemove', onResizeMove);
+        window.removeEventListener('mouseup', onResizeEnd);
+        window.removeEventListener('touchmove', onResizeMove);
+        window.removeEventListener('touchend', onResizeEnd);
+    };
+    
+    els.sidebarResizer.addEventListener('mousedown', onResizeStart);
+    els.sidebarResizer.addEventListener('touchstart', onResizeStart, { passive: false });
 }
+
 
 function initDrawing() {
   let saveTimeout;
@@ -1400,7 +1418,6 @@ function initDrawing() {
   updateUndoRedoButtonStates();
 }
 
-// 【修改】重构以正确处理移动端初始视图
 function boot() {
   initPanZoom();
   initUI();
@@ -1412,18 +1429,14 @@ function boot() {
   const wrapperRect = els.canvasWrapper.getBoundingClientRect();
   const CONTENT_THEORETICAL_WIDTH = 920;
   
-  // 确保在应用变换前，先设置好初始值
   state.panY = 60; 
 
   if (wrapperRect.width > CONTENT_THEORETICAL_WIDTH) {
-      // 桌面端或宽屏平板：居中内容
       state.panX = (wrapperRect.width - CONTENT_THEORETICAL_WIDTH) / 2;
   } else {
-      // 手机或窄屏平板：靠左显示并留出边距
       state.panX = 16;
   }
   
-  // 延迟一帧执行，确保DOM布局稳定
   requestAnimationFrame(() => {
     setTransform();
   });

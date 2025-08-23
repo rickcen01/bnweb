@@ -142,10 +142,9 @@ label.upload input { display: none; }
 }
 #canvas { position: absolute; transform-origin: 0 0; z-index: 2; }
 
-/* 【关键修改】确保内容框架在小屏上能自动缩放 */
 #contentFrame { 
     max-width: 920px; 
-    width: 100%; /* 这一行至关重要 */
+    width: 100%;
     margin-left: auto; 
     margin-right: auto;
     background: #fff; 
@@ -211,6 +210,7 @@ label.upload input { display: none; }
     resize: both;
     overflow: hidden;
 }
+/* 【修改】移除 overflow: hidden 以修复侧边栏滚动问题 */
 .micro-chat.sidebar { 
     position: static; 
     width: auto; 
@@ -221,7 +221,7 @@ label.upload input { display: none; }
     border-radius: 0;
     background: transparent;
     resize: none;
-    overflow: hidden;
+    /* overflow: hidden; */ /* <- 移除此行 */
 }
 .micro-chat .messages { 
     overflow-y: auto; 
@@ -531,4 +531,28 @@ label.upload input { display: none; }
     min-width: 20px;
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+
+/* 【新增】媒体查询，修复手机端工具栏显示问题 */
+@media (max-width: 480px) {
+    #annotationToolbar {
+        gap: 4px;
+        padding: 6px;
+    }
+    .tool-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+    }
+    .stroke-control {
+        flex-direction: column;
+        gap: 2px;
+        align-items: center;
+    }
+    .stroke-control label {
+        font-size: 12px;
+    }
+    #strokeWidth {
+        width: 80px;
+    }
 }
