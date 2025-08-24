@@ -522,7 +522,6 @@ def chat(req: ChatRequest):
             - 结合你收到的文档内容补充必要的上下文信息
             - 如果问题需要推导或分析，分步骤展示推理过程
             - 如果涉及回答问题，请结合你自己的观点和文档信息解答
-            - 如果涉及翻译，请保持原意并尽量符合目标语言的表达习惯
             - 如果用户要求用特定风格（如幽默、鲁迅风格），请保持该风格
             """
 
@@ -542,14 +541,31 @@ def chat(req: ChatRequest):
 
             print("\n" + "="*50 + "\n>>> CURRENT USER PROMPT (FIRST TURN - FULL CONTEXT):\n" + prompt_for_model + "\n" + "="*50 + "\n")
 
-            response = client.models.generate_content(model="gemini-2.5-pro", contents=[prompt_for_model])
+            response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt_for_model])
             
             print("\n" + "="*20 + " [AI Chat Response (First Turn)] " + "="*20)
             print("--- Raw Response Object ---")
             print(response)
             print("="*68 + "\n")
 
-            ai_response_text = response.text
+            # --- [推荐的修改] ---
+            # 默认AI回复为空字符串，避免后续操作出错
+            # --- [推荐的修改] ---
+            ai_response_text = ""  # 默认值，确保是字符串
+
+            try:
+                # 采用您指出的、最稳健的方式来解析返回内容
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    ai_response_text = response.candidates[0].content.parts[0].text
+                else:
+                    # 即使结构完整但内容为空，也记录一下，便于调试
+                    print("警告: Gemini API 返回了空的 candidates 或 parts。")
+            except Exception as e:
+                # 捕获所有可能的解析错误
+                print(f"解析 Gemini API 响应时出错: {e}")
+                ai_response_text = "[AI服务返回格式异常或无内容]"
+            # --- [修改结束] ---
+            # --- [修改结束] ---
             ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
             ai_response_html = markdown.markdown(
                 ai_response_text,
@@ -598,7 +614,7 @@ def chat(req: ChatRequest):
             print("====== ^ ^ ^ ====== END OF GEMINI API INPUT ====== ^ ^ ^ ======")
             print("="*50 + "\n")
 
-            chat_session = client.chats.create(model="gemini-2.5-pro", history=history_for_model)
+            chat_session = client.chats.create(model="gemini-2.5-flash", history=history_for_model)
             response = chat_session.send_message(prompt_for_model)
 
             print("\n" + "="*20 + " [AI Chat Response (Follow-up)] " + "="*20)
@@ -606,7 +622,18 @@ def chat(req: ChatRequest):
             print(response)
             print("="*69 + "\n")
 
-            ai_response_text = response.text
+            # --- [同样的修改逻辑] ---
+            ai_response_text = ""
+
+            try:
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    ai_response_text = response.candidates[0].content.parts[0].text
+                else:
+                    print("警告: Gemini API 返回了空的 candidates 或 parts。")
+            except Exception as e:
+                print(f"解析 Gemini API 响应时出错: {e}")
+                ai_response_text = "[AI服务返回格式异常或无内容]"
+            # --- [修改结束] ---
             ai_response_text = re.sub(r'```[a-zA-Z]*\s*(<img[^>]*>)\s*```', r'\1', ai_response_text, flags=re.DOTALL)
             ai_response_html = markdown.markdown(
                 ai_response_text,
